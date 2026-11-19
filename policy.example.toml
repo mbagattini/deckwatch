@@ -1,0 +1,98 @@
+# =====================================================================
+#  DeckWatch — REGOLE (policy.toml)
+#  Percorso sulla Deck: ~/.config/deckwatch/policy.toml
+#  Viene ricaricato da solo entro ~15 secondi quando lo salvi.
+#  Dopo ogni modifica puoi verificarlo con:   deckwatch check
+#
+#  Tutti i tempi sono in MINUTI. Le righe che iniziano con # sono commenti.
+#  Giorni: mon tue wed thu fri sat sun, oppure i gruppi weekdays / weekend.
+# =====================================================================
+
+# Minuti senza toccare niente (tastiera, mouse, touch, controlli) dopo i quali
+# il tempo smette di essere conteggiato.
+idle_minutes = 3
+
+# Manda ai genitori su Telegram un avviso quando un gioco viene chiuso.
+alerts = true
+
+# Messaggio mostrato quando i genitori bloccano la Deck (/stop su Telegram).
+lock_message = "Mamma e papà hanno messo in pausa la Deck."
+# Secondi concessi per salvare prima che il blocco chiuda i giochi.
+lock_grace_seconds = 60
+
+# Blocco anche da file (in alternativa a /stop su Telegram):
+# lock = true
+# lock_until = 2026-11-20T08:00:00
+
+# App che NON contano nel tempo (e non vengono mai chiuse).
+# Per scoprire il nome di un'app: apri l'app e lancia nel terminale  deckwatch fg --watch
+exclude = [
+  "class:plasmashell", "class:krunner", "class:kdialog", "class:zenity",
+  "class:ksmserver*", "class:kwin*", "class:polkit*", "class:org.kde.polkit*",
+  "steam:ui",
+]
+
+# App che restano usabili anche quando il tempo totale è finito o la Deck è
+# bloccata (contano comunque nel tempo, a meno che siano anche in exclude).
+always_allowed = [
+  "class:steam", "class:steamwebhelper", "class:systemsettings",
+  "class:dolphin", "class:org.kde.dolphin", "class:konsole", "class:org.kde.konsole",
+]
+
+[grace]
+# Tempo di grazia dopo il limite massimo, per salvare e chiudere.
+minutes = 5
+# Avvisi quando mancano questi minuti al limite massimo.
+warn_before = [10, 5, 1]
+# Cosa fare quando finisce il tempo TOTALE (dopo la grazia):
+#   "kill"     = chiude i giochi/app (Steam e le app consentite restano)
+#   "shutdown" = spegne la Deck
+on_total_exceeded = "kill"
+# Se riapre un'app già bloccata: avviso e chiusura dopo questi secondi.
+relaunch_seconds = 20
+
+# ---------------------------------------------------------------------
+# Tempo totale giornaliero (tutte le app sommate)
+#   soft = solo avviso    hard = massimo, poi grazia e chiusura
+# ---------------------------------------------------------------------
+[total]
+soft = 100
+hard = 120
+weekend = { soft = 150, hard = 180 }
+# fri = { hard = 150 }
+
+# ---------------------------------------------------------------------
+# Limiti per singola app/gioco. Il nome dopo "apps." è l'identificativo da
+# usare nei comandi Telegram (es. /extra geometry_dash 15).
+#   match: "steam:<appid>"  per i giochi Steam (deckwatch games li elenca)
+#          "class:<nome>"   per le altre app (deckwatch fg li mostra)
+#          "name:*testo*"   per nome visualizzato; * = qualunque testo
+# ---------------------------------------------------------------------
+[apps.geometry_dash]
+name = "Geometry Dash"
+match = ["steam:322170"]
+soft = 45
+hard = 60
+# sat = { hard = 90 }
+
+# Un'app senza soft/hard serve solo a raggruppare il tempo nel report.
+[apps.browser]
+name = "Browser"
+match = ["class:firefox", "class:*chrom*", "class:brave*", "class:microsoft-edge*"]
+
+# ---------------------------------------------------------------------
+# Eccezioni per una data precisa (per quelle al volo usa /extra su Telegram)
+#   extra = minuti in più sul totale (anche negativi)
+#   total_soft / total_hard = sostituiscono i limiti totali del giorno
+#   apps = { geometry_dash = 15 } minuti in più a singole app
+#   unlimited = true  nessun limite quel giorno
+#   note = "testo che compare nel report"
+# ---------------------------------------------------------------------
+# [exceptions.2026-12-25]
+# unlimited = true
+# note = "Natale"
+#
+# [exceptions.2026-11-21]
+# extra = 30
+# apps = { geometry_dash = 15 }
+# note = "Compleanno"

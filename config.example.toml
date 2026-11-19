@@ -1,0 +1,34 @@
+# =====================================================================
+#  DeckWatch — CONFIGURAZIONE (config.toml)
+#  Percorso sulla Deck: ~/.config/deckwatch/config.toml
+#  Dopo una modifica:  systemctl --user restart deckwatch
+#  Prova invio messaggi:  deckwatch test
+# =====================================================================
+
+# Ora di invio del report giornaliero (se la Deck è spenta, parte alla
+# prima accensione successiva).
+report_time = "21:30"
+
+# Aggiornamenti automatici (controllo una volta al giorno).
+update_url = "https://raw.githubusercontent.com/mbagattini/dd/main"
+auto_update = true
+
+[telegram]
+# Token del bot, ottenuto da @BotFather su Telegram.
+token = ""
+# Chat id dei genitori: ognuno apre il bot e preme Avvia, poi
+#   deckwatch telegram-setup --save
+parents = []
+# (facoltativo) chat id del figlio, se usa Telegram: riceve il suo report.
+kid = []
+
+[email]
+# Usata per il report al figlio. Consigliato un account Gmail creato apposta,
+# con verifica in due passaggi e una "password per le app" (16 lettere).
+smtp_host = "smtp.gmail.com"
+smtp_port = 465
+username = ""
+password = ""
+sender = ""          # facoltativo, es. "DeckWatch <deckwatch.famiglia@gmail.com>"
+kid = []             # es. ["figlio@gmail.com"]
+parents = []         # facoltativo: usato solo se Telegram non è configurato
