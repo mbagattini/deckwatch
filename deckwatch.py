@@ -53,7 +53,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 APP = "deckwatch"
 TICK = 10.0
@@ -1262,10 +1262,12 @@ class Engine:
 
     def _say(self, title: str, body: str, level: str = "info", kind: str = "info",
              event: bool = True) -> None:
-        """level: info (notifica), soft (notifica + suono), strong (notifica critica, popup, suono)."""
+        """level: info (notifica normale), soft (notifica critica + suono),
+        strong (notifica critica + popup + suono). Con un gioco a tutto schermo solo le
+        notifiche critiche sono visibili; il popup prende il controllo dello schermo."""
         log.info("Avviso: %s — %s", title, body)
         try:
-            self.platform.notify(title, body, level == "strong")
+            self.platform.notify(title, body, level in ("soft", "strong"))
             if level == "strong":
                 self.platform.popup(f"{title}\n\n{body}")
             if level in ("soft", "strong"):
@@ -3357,8 +3359,8 @@ def cmd_test_notifications(paths: Paths, args) -> int:
         ("2) notifica critica", lambda: p.notify("DeckWatch — prova 2", "Notifica critica", True)),
         ("3) popup", lambda: p.popup("DeckWatch — prova 3\n\nPopup: premi OK per chiudere")),
         ("4) suono di allarme", p.alarm),
-        ("5) notifica + suono (come al tempo concordato)",
-         lambda: (p.notify("⏰ Tempo concordato terminato", "Prova: chiudi appena possibile."),
+        ("5) notifica critica + suono (come al tempo concordato)",
+         lambda: (p.notify("⏰ Tempo concordato terminato", "Prova: chiudi appena possibile.", True),
                   p.alarm())),
     ]
     for label, fn in steps:
@@ -3366,6 +3368,58 @@ def cmd_test_notifications(paths: Paths, args) -> int:
         fn()
         time.sleep(6)
     print("Fine. Cosa hai visto o sentito per ciascun passo? Il gioco si è interrotto?")
+    return 0
+
+
+def cmd_debug_firefox(paths: Paths, args) -> int:
+    """Diagnosi della whitelist scuola: mostra solo i domini delle schede, non gli indirizzi."""
+    _, L = _load_rules(paths)
+    p = LinuxPlatform()
+    p.refresh(force=True)
+    fs = p.firefox
+    print("Profili Firefox trovati:")
+    found = False
+    for r in fs.roots:
+        if not r.is_dir():
+            continue
+        for prof in sorted(r.iterdir()):
+            if not (prof / "prefs.js").exists():
+                continue
+            found = True
+            f = prof / "sessionstore-backups" / "recovery.jsonlz4"
+            lock = os.path.lexists(prof / "lock")
+            try:
+                age = f"aggiornata {time.time() - f.stat().st_mtime:.0f} s fa"
+            except OSError:
+                age = "file di sessione assente"
+            print(f"  {prof}\n     in uso (lock): {'sì' if lock else 'no'} — sessione {age}")
+    if not found:
+        print("  nessuno (cartelle cercate: " + ", ".join(str(r) for r in fs.roots) + ")")
+    prof = fs._running_profile()
+    print(f"Profilo scelto: {prof}")
+    res = fs.read()
+    if not res:
+        print("Sessione non leggibile o vecchia → scuola=no")
+        return 0
+    urls, nwin = res
+    print(f"Finestre nella sessione: {nwin}, schede: {len(urls)}")
+    for i, u in enumerate(urls, 1):
+        host = urllib.parse.urlsplit(u).hostname or u.split("?")[0][:40]
+        print(f"  scheda {i}: {host} → {'consentito' if firefox_url_ok(u, L.school_sites) else 'NON consentito'}")
+    x = p.x
+    if x and x.dpy:
+        wins = x.client_windows()
+        if wins is None:
+            print("Elenco finestre dello schermo non disponibile → scuola=no")
+        else:
+            for w in wins:
+                wi = x.window_info(w)
+                if f"class:{(wi.cls or '').lower()}" in FIREFOX_KEYS:
+                    print(f"  finestra Firefox: normale={'sì' if x.is_normal_window(w) else 'no'} "
+                          f"anonima={'sì' if PRIVATE_TITLE.search(wi.title or '') else 'no'}")
+    else:
+        print("Display non disponibile: controllo finestre saltato")
+    print(f"Risultato: scuola={'sì' if p.firefox_school_ok(L.school_sites) else 'no'}")
     return 0
 
 
@@ -3448,6 +3502,7 @@ def main(argv=None) -> int:
     p.add_argument("--send", action="store_true")
     sub.add_parser("test", help="invia messaggi di prova (Telegram ed email)")
     sub.add_parser("test-notifiche", help="prova notifiche, popup e suono sulla Deck")
+    sub.add_parser("debug-firefox", help="diagnosi della whitelist scuola su Firefox")
     p = sub.add_parser("telegram-setup", help="trova i chat id dei genitori")
     p.add_argument("--save", action="store_true")
     sub.add_parser("update", help="aggiorna DeckWatch ora")
@@ -3456,6 +3511,7 @@ def main(argv=None) -> int:
     fn = {"run": cmd_run, "install-service": cmd_install_service, "status": cmd_status,
           "check": cmd_check, "fg": cmd_fg, "games": cmd_games, "report": cmd_report,
           "test": cmd_test, "test-notifiche": cmd_test_notifications,
+          "debug-firefox": cmd_debug_firefox,
           "telegram-setup": cmd_telegram_setup, "update": cmd_update}[args.cmd]
     return fn(paths, args)
 
