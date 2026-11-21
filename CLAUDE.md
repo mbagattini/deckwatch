@@ -124,14 +124,23 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
     - Se la nuova versione va in crash 3 volte nei primi 10 minuti, il launcher torna
       alla precedente.
 11. **Comandi Telegram**
-    - Prefissi: `report_`, `info_`, `timer_`, `insieme_`, `limite_`, `config_`.
+    - Prefissi: `report_`, `info_`, `timer_`, `insieme_`, `limite_`, `config_`
+      (nomi corti: su Telegram si leggono male se sono lunghi).
       Elenco completo in `COMMANDS` dentro `deckwatch.py`.
     - Il menu è registrato da solo, solo nelle chat dei genitori.
     - Ogni modifica viene notificata all'altro genitore.
+    - **Comandi arrivati in ritardo** (Deck spenta o offline):
+      - `info_*`, `report_*` e `/start`: scartati in silenzio dopo 1 minuto;
+      - `timer_*` e `insieme_*`: scartati dopo 10 minuti, con una risposta
+        "ignorato";
+      - `limite_*` e `config_*`: applicati sempre.
+    - **Regola di manutenzione:** quando si rinomina un comando non si tengono alias
+      dei nomi vecchi; i **dati** delle versioni precedenti invece vanno sempre
+      migrati.
 12. **Email:** solo via Brevo, con una chiave SMTP di solo invio. Niente password per
     le app di Google.
 
-## Stato (aggiornato al 21/11/2026, versione 0.4.0)
+## Stato (aggiornato al 21/11/2026, versione 0.4.1)
 
 La 0.4.0 introduce la "crescita" (siti e app con dettaglio nel report) al posto della
 "scuola". Non è ancora provata sulla Deck: da verificare con

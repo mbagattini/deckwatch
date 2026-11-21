@@ -136,6 +136,15 @@ esempio. `/info_comandi` mostra tutto.
 Ogni volta che uno di voi manda un comando che cambia qualcosa, l'altro genitore
 riceve un messaggio.
 
+**Se la Deck è spenta o senza connessione**, i comandi aspettano che si riaccenda,
+ma non tutti restano validi:
+- **Richieste di informazioni** (`info_…`, `report_…`): se non hanno risposta entro
+  1 minuto vengono scartate. Ripetetele quando la Deck è accesa.
+- **Azioni su "adesso"** (`timer_…`, `insieme_…`): se arrivano con più di 10 minuti di
+  ritardo vengono ignorate, e il bot ve lo dice.
+- **Regole e configurazione** (`limite_…`, `config_…`): vengono applicate appena la
+  Deck si riaccende.
+
 ## Messaggi che possono arrivarvi
 
 - **🆕 Nuova app:** un'app mai vista prima è stata usata per più di **5 minuti**. Il

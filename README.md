@@ -100,6 +100,11 @@ richiede dati, il bot risponde con un esempio.
 
 Ogni modifica viene notificata anche all'altro genitore.
 
+**Comandi arrivati con la Deck spenta o offline:**
+- `info_*`, `report_*`: scartati dopo 1 minuto, senza risposta;
+- `timer_*`, `insieme_*`: ignorati dopo 10 minuti, con un avviso;
+- `limite_*`, `config_*`: applicati all'accensione.
+
 ## Comandi sulla Deck
 
 ```
