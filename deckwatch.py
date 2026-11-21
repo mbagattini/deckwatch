@@ -53,7 +53,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 APP = "deckwatch"
 TICK = 10.0
@@ -1140,12 +1140,12 @@ COMMANDS = [
     ("insieme_fine", "Chiude la modalità insieme", None),
     ("limite_imposta", "Imposta un limite (es. geometry dash 60)", "/limite_imposta geometry dash 60  ·  /limite_imposta geometry dash festivo 60 75  ·  /limite_imposta totale feriale 120"),
     ("limite_rimuovi", "Toglie il limite di un'app", "/limite_rimuovi minecraft  ·  /limite_rimuovi totale festivo"),
-    ("configura_nome_app", "Dà un nome leggibile a un'app", "/configura_nome_app class:game.exe Fortnite"),
-    ("configura_aggiungi_sito_crescita", "Aggiunge un sito di crescita", "/configura_aggiungi_sito_crescita chess.com"),
-    ("configura_rimuovi_sito_crescita", "Toglie un sito di crescita", "/configura_rimuovi_sito_crescita chess.com"),
-    ("configura_aggiungi_app_crescita", "Aggiunge un'app di crescita", "/configura_aggiungi_app_crescita scratch  ·  /configura_aggiungi_app_crescita class:code"),
-    ("configura_rimuovi_app_crescita", "Toglie un'app di crescita", "/configura_rimuovi_app_crescita class:code"),
-    ("configura_aggiorna", "Controlla e installa subito gli aggiornamenti", None),
+    ("config_nome_app", "Dà un nome leggibile a un'app", "/config_nome_app class:game.exe Fortnite"),
+    ("config_aggiungi_sito_crescita", "Aggiunge un sito di crescita", "/config_aggiungi_sito_crescita chess.com"),
+    ("config_rimuovi_sito_crescita", "Toglie un sito di crescita", "/config_rimuovi_sito_crescita chess.com"),
+    ("config_aggiungi_app_crescita", "Aggiunge un'app di crescita", "/config_aggiungi_app_crescita scratch  ·  /config_aggiungi_app_crescita class:code"),
+    ("config_rimuovi_app_crescita", "Toglie un'app di crescita", "/config_rimuovi_app_crescita class:code"),
+    ("config_aggiorna", "Controlla e installa subito gli aggiornamenti", None),
 ]
 
 
@@ -1408,7 +1408,7 @@ class Engine:
             msg = (f"🆕 Nuova app in uso: {label}\n"
                    + (f"Titolo della finestra: {fg.title}\n" if fg.title and fg.title != label else "")
                    + f"Identificativo: {fg.key}\n\n"
-                   f"Per darle un nome:\n/configura_nome_app {fg.key} Nome\n"
+                   f"Per darle un nome:\n/config_nome_app {fg.key} Nome\n"
                    f"Per impostare un limite:\n/limite_imposta {fg.key} 60")
             self.outbox.to_parents(msg, "DeckWatch: nuova app")
             self._event("alert", f"Nuova app: {label} ({fg.key})")
@@ -1710,15 +1710,21 @@ class Engine:
         if not parts:
             return None
         cmd = parts[0].split("@")[0].lower().lstrip("/")
-        cmd = {"info_scuola": "info_crescita",
-               "configura_aggiungi_sito_scuola": "configura_aggiungi_sito_crescita",
-               "configura_rimuovi_sito_scuola": "configura_rimuovi_sito_crescita"}.get(cmd, cmd)
         args = parts[1:]
         age = now.timestamp() - msg_ts
         today = now.date().isoformat()
         pol, L = self.policy, self.limits
 
-        if cmd in ("start", "help", "aiuto", "info_comandi"):
+        # Comandi arrivati in ritardo (Deck spenta o offline): informazioni e azioni su
+        # "adesso" scadono; regole e configurazione restano valide.
+        group = "info" if cmd == "start" else cmd.split("_")[0]
+        max_age = {"info": 60, "report": 60, "timer": 600, "insieme": 600}.get(group)
+        if max_age is not None and age > max_age:
+            if group in ("timer", "insieme"):
+                return (f"⌛ /{cmd} è arrivato con {fmt_min(age / 60)} di ritardo (Deck spenta "
+                        "o offline): ignorato.")
+            return None
+        if cmd in ("start", "info_comandi"):
             return self.help_text()
         if cmd == "info_stato":
             return self.status_text(now)
@@ -1815,8 +1821,6 @@ class Engine:
             self._broadcast_others(chat_id, f"📅 {sender}: oggi vale come giorno {dtype}.")
             return f"📅 Oggi vale come giorno {dtype}.\n\n" + self.limits_text(now.date())
         if cmd == "timer_spegni_deck":
-            if age > 600:
-                return "Comando ricevuto in ritardo (Deck spenta o offline): ignorato."
             if not pol.enforce:
                 self._say("⏻ Spegnimento (simulazione)", "I genitori hanno chiesto lo "
                           "spegnimento: la Deck si sarebbe spenta adesso. Per ora è solo una "
@@ -1906,7 +1910,7 @@ class Engine:
             self._event("edit", f"{sender}: {desc}")
             self._broadcast_others(chat_id, f"✏️ {sender}: {desc}.")
             return f"✏️ {desc}.\n\n" + self.limits_text(now.date())
-        if cmd == "configura_nome_app":
+        if cmd == "config_nome_app":
             if len(args) < 2 or not re.match(r"^(steam|class):\S+$", args[0].lower()):
                 return self._usage(cmd) + "\nGli identificativi li trovi con /info_app."
             key, new_name = args[0].lower(), " ".join(args[1:])
@@ -1920,14 +1924,14 @@ class Engine:
             self._event("edit", f"{sender}: {key} si chiama \"{new_name}\"")
             self._broadcast_others(chat_id, f"✏️ {sender}: {key} ora si chiama \"{new_name}\".")
             return f"✏️ {key} ora si chiama \"{new_name}\"."
-        if cmd in ("configura_aggiungi_sito_crescita", "configura_rimuovi_sito_crescita"):
+        if cmd in ("config_aggiungi_sito_crescita", "config_rimuovi_sito_crescita"):
             if not args:
                 return self._usage(cmd) + "\n\n" + self.growth_text()
             try:
                 site = _norm_site(args[0])
             except PolicyError as e:
                 return str(e)
-            if cmd.startswith("configura_aggiungi"):
+            if cmd.startswith("config_aggiungi"):
                 if site in L.growth_sites:
                     return f"{site} è già nella lista."
                 L.growth_sites.append(site)
@@ -1941,11 +1945,11 @@ class Engine:
             self._event("edit", f"{sender}: {desc}")
             self._broadcast_others(chat_id, f"🌱 {sender}: {desc}.")
             return f"🌱 Fatto: {desc}."
-        if cmd in ("configura_aggiungi_app_crescita", "configura_rimuovi_app_crescita"):
+        if cmd in ("config_aggiungi_app_crescita", "config_rimuovi_app_crescita"):
             if not args:
                 return self._usage(cmd) + "\n\n" + self.growth_text()
             text = " ".join(args)
-            if cmd.startswith("configura_aggiungi"):
+            if cmd.startswith("config_aggiungi"):
                 key, err = self._find_app_key(text)
                 if err:
                     return err
@@ -1966,7 +1970,7 @@ class Engine:
             self._event("edit", f"{sender}: {desc}")
             self._broadcast_others(chat_id, f"🌱 {sender}: {desc}.")
             return f"🌱 Fatto: {desc}."
-        if cmd == "configura_aggiorna":
+        if cmd == "config_aggiorna":
             if self.on_update_request:
                 self.on_update_request(chat_id)
                 return "🔄 Controllo aggiornamenti in corso…"

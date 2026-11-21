@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.s
   registra le chat.
 - **Prove:** `deckwatch test` verifica Telegram e l'email; `deckwatch test-notifiche`
   verifica cosa si vede sulla Deck.
-- **Aggiornare:** rilancia la stessa riga, oppure usa `/configura_aggiorna` su
+- **Aggiornare:** rilancia la stessa riga, oppure usa `/config_aggiorna` su
   Telegram. Configurazione e limiti restano.
 - **Disinstallare:** `bash ~/.local/share/deckwatch/install.sh --uninstall`
   (aggiungi `--purge` per cancellare anche configurazione e dati).
@@ -93,10 +93,10 @@ richiede dati, il bot risponde con un esempio.
 | `/insieme_inizio [minuti]`, `/insieme_fine` | modalità insieme (promemoria predefinito a 90 minuti) |
 | `/limite_imposta <app\|totale> [feriale\|festivo] concordato [massimo]` | massimo predefinito: concordato + 5 |
 | `/limite_rimuovi <app\|totale> [feriale\|festivo]` | toglie un limite |
-| `/configura_nome_app <identificativo> <nome>` | dà un nome leggibile a un'app |
-| `/configura_aggiungi_sito_crescita`, `/configura_rimuovi_sito_crescita` | siti di crescita |
-| `/configura_aggiungi_app_crescita`, `/configura_rimuovi_app_crescita` | app di crescita (per nome o identificativo) |
-| `/configura_aggiorna` | aggiorna subito |
+| `/config_nome_app <identificativo> <nome>` | dà un nome leggibile a un'app |
+| `/config_aggiungi_sito_crescita`, `/config_rimuovi_sito_crescita` | siti di crescita |
+| `/config_aggiungi_app_crescita`, `/config_rimuovi_app_crescita` | app di crescita (per nome o identificativo) |
+| `/config_aggiorna` | aggiorna subito |
 
 Ogni modifica viene notificata anche all'altro genitore.
 

@@ -94,10 +94,9 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
    - **Lista iniziale:** `nuvola.madisoft.it`, `*.wikipedia.org`,
      `classroom.google.com`, `docs.google.com`, `drive.google.com`,
      `meet.google.com`, `accounts.google.com`.
-   - **Comandi:** `/configura_aggiungi_sito_crescita`, `/configura_rimuovi_sito_crescita`,
-     `/configura_aggiungi_app_crescita` (per nome o identificativo),
-     `/configura_rimuovi_app_crescita`, `/info_crescita`. I vecchi `..._scuola` restano
-     come alias.
+   - **Comandi:** `/config_aggiungi_sito_crescita`, `/config_rimuovi_sito_crescita`,
+     `/config_aggiungi_app_crescita` (per nome o identificativo),
+     `/config_rimuovi_app_crescita`, `/info_crescita`.
 6. **Modalità insieme**
    - `/insieme_inizio [min]`: il tempo va in "Insieme" e non conta.
    - Promemoria a 90 minuti (sulla Deck e su Telegram), poi ogni 30 solo su Telegram.
@@ -105,7 +104,7 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
 7. **App nuove**
    - Avviso immediato su Telegram dopo 5 minuti di uso, con i comandi pronti per
      nome e limite.
-   - `/configura_nome_app`; limiti da Telegram con ricerca per nome tra i giochi
+   - `/config_nome_app`; limiti da Telegram con ricerca per nome tra i giochi
      Steam installati.
 8. **Report**
    - **Giornaliero:** a fine giornata, cioè alla prima accensione del giorno dopo o a
@@ -121,11 +120,11 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
    - Nel report: modifiche fatte a mano ai file, tempo offline durante l'uso.
 10. **Aggiornamenti**
     - Automatici: aspettano che lui non stia giocando. Da Telegram:
-      `/configura_aggiorna`.
+      `/config_aggiorna`.
     - Se la nuova versione va in crash 3 volte nei primi 10 minuti, il launcher torna
       alla precedente.
 11. **Comandi Telegram**
-    - Prefissi: `report_`, `info_`, `timer_`, `insieme_`, `limite_`, `configura_`.
+    - Prefissi: `report_`, `info_`, `timer_`, `insieme_`, `limite_`, `config_`.
       Elenco completo in `COMMANDS` dentro `deckwatch.py`.
     - Il menu è registrato da solo, solo nelle chat dei genitori.
     - Ogni modifica viene notificata all'altro genitore.
@@ -137,7 +136,7 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
 La 0.4.0 introduce la "crescita" (siti e app con dettaglio nel report) al posto della
 "scuola". Non è ancora provata sulla Deck: da verificare con
 `deckwatch debug-firefox` (deve indicare il sito della scheda attiva) e con
-`/configura_aggiungi_app_crescita`.
+`/config_aggiungi_app_crescita`.
 
 **Verificato sulla Deck reale**
 - Installazione e aggiornamento automatico.

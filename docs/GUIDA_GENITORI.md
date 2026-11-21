@@ -124,13 +124,13 @@ esempio. `/info_comandi` mostra tutto.
 - `/limite_imposta totale feriale 120`: il tempo totale nei giorni feriali.
 - `/limite_rimuovi minecraft`: toglie il limite di un gioco, che continua a contare
   nel totale.
-- `/configura_aggiungi_sito_crescita chess.com` e `/configura_rimuovi_sito_crescita`:
+- `/config_aggiungi_sito_crescita chess.com` e `/config_rimuovi_sito_crescita`:
   gestiscono i siti di crescita. Si può incollare anche un link intero.
-- `/configura_aggiungi_app_crescita scratch` e `/configura_rimuovi_app_crescita`:
+- `/config_aggiungi_app_crescita scratch` e `/config_rimuovi_app_crescita`:
   gestiscono le app di crescita. L'app deve essere stata aperta almeno una volta
   sulla Deck.
 - `/info_crescita`: mostra siti e app di crescita, con il tempo di oggi.
-- `/configura_nome_app`: dà un nome leggibile a un'app. Il bot ve lo propone da solo
+- `/config_nome_app`: dà un nome leggibile a un'app. Il bot ve lo propone da solo
   quando vede un'app nuova.
 
 Ogni volta che uno di voi manda un comando che cambia qualcosa, l'altro genitore
@@ -151,7 +151,7 @@ riceve un messaggio.
   di gioco senza connessione internet.
 - **🔄 Aggiornamento:** DeckWatch si aggiorna da solo, al massimo una volta al giorno,
   aspettando un momento in cui lui non sta giocando. Potete anche lanciarlo con
-  `/configura_aggiorna`.
+  `/config_aggiorna`.
 
 ## Tempi in breve
 

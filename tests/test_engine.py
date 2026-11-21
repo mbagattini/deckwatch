@@ -99,8 +99,8 @@ class Base(unittest.TestCase):
             self.eng.tick(self.now, step)
             t += step
 
-    def cmd(self, text, who="Papà", chat=1):
-        return self.eng.handle_command(chat, who, text, self.now.timestamp(), self.now)
+    def cmd(self, text, who="Papà", chat=1, age=0):
+        return self.eng.handle_command(chat, who, text, self.now.timestamp() - age, self.now)
 
     def titles(self):
         return [n[0] for n in self.pf.notes]
@@ -141,7 +141,7 @@ class CountingTests(Base):
         scratch = d.Foreground("class:scratch-desktop", "Scratch 3.0", window=9)
         self.pf.fg = scratch
         self.run_for(60)
-        self.assertIn("Fatto", self.cmd("/configura_aggiungi_app_crescita scratch"))
+        self.assertIn("Fatto", self.cmd("/config_aggiungi_app_crescita scratch"))
         self.run_for(600)
         self.assertAlmostEqual(self.eng.state["total"], 60)
         self.assertAlmostEqual(self.eng.state["growth_detail"]["Scratch 3.0"], 600)
@@ -149,7 +149,7 @@ class CountingTests(Base):
         self.cmd("/timer_pausa")
         self.run_for(120)
         self.assertEqual(self.pf.kills, [])   # le app di crescita restano usabili in pausa
-        self.cmd("/configura_rimuovi_app_crescita class:scratch-desktop")
+        self.cmd("/config_rimuovi_app_crescita class:scratch-desktop")
         self.assertEqual(self.eng.limits.growth_apps, [])
 
 
@@ -325,22 +325,19 @@ class CommandTests(Base):
 
     def test_saved_limits_roundtrip(self):
         self.cmd("/limite_imposta hades 45")
-        self.cmd("/configura_aggiungi_sito_crescita https://www.treccani.it/enciclopedia/roma")
+        self.cmd("/config_aggiungi_sito_crescita https://www.treccani.it/enciclopedia/roma")
         L = self.eng.limits
         L2 = d.Limits(d.load_toml_text(L.to_toml()), 5)
         self.assertEqual(d.limits_diff(L, L2), [])
         self.assertIn("treccani.it", L2.growth_sites)
 
     def test_growth_sites_commands(self):
-        r = self.cmd("/configura_aggiungi_sito_crescita chess.com")
+        r = self.cmd("/config_aggiungi_sito_crescita chess.com")
         self.assertIn("aggiunto", r)
-        self.assertIn("già", self.cmd("/configura_aggiungi_sito_crescita chess.com"))
-        self.cmd("/configura_rimuovi_sito_crescita chess.com")
+        self.assertIn("già", self.cmd("/config_aggiungi_sito_crescita chess.com"))
+        self.cmd("/config_rimuovi_sito_crescita chess.com")
         self.assertNotIn("chess.com", self.eng.limits.growth_sites)
         self.assertIn("nuvola.madisoft.it", self.cmd("/info_crescita"))
-        self.assertIn("nuvola.madisoft.it", self.cmd("/info_scuola"))   # vecchio nome
-        self.cmd("/configura_aggiungi_sito_scuola claude.ai")
-        self.assertIn("claude.ai", self.eng.limits.growth_sites)
 
     def test_legacy_scuola_section_and_state(self):
         L = d.Limits(d.load_toml_text('[scuola]\nsiti = ["nuvola.madisoft.it"]'), 5)
@@ -360,8 +357,8 @@ class CommandTests(Base):
         self.run_for(70)
         alerts = [p for p in self.ob.parents if "Nuova app" in p[1]]
         self.assertEqual(len(alerts), 1)
-        self.assertIn("/configura_nome_app class:game.exe Nome", alerts[0][1])
-        self.cmd("/configura_nome_app class:game.exe Fortnite")
+        self.assertIn("/config_nome_app class:game.exe Nome", alerts[0][1])
+        self.cmd("/config_nome_app class:game.exe Fortnite")
         self.assertIn("Fortnite — class:game.exe", self.cmd("/info_app"))
         self.cmd("/limite_imposta fortnite 30")
         aid = self.eng.limits.find_app("fortnite")
@@ -374,6 +371,17 @@ class CommandTests(Base):
         self.assertIn("Fatto", r)
         _, apps = self.eng.limits_now(self.now.date())
         self.assertEqual((apps["gd"].soft, apps["gd"].hard), (75, 80))
+
+    def test_late_commands(self):
+        self.assertIsNone(self.cmd("/info_stato", age=90))        # informativo scaduto: silenzio
+        self.assertIsNotNone(self.cmd("/info_stato", age=30))
+        r = self.cmd("/timer_pausa", age=900)
+        self.assertIn("ignorato", r)
+        self.assertFalse(self.eng.remote_locked(self.now))
+        self.assertIn("ignorato", self.cmd("/insieme_inizio", age=900))
+        self.assertIsNone(self.eng.together())
+        self.assertIn("Vale da subito", self.cmd("/limite_imposta hades 45", age=7200))
+        self.assertIn("aggiunto", self.cmd("/config_aggiungi_sito_crescita chess.com", age=7200))
 
     def test_help_lists_all_commands(self):
         h = self.cmd("/info_comandi")
