@@ -131,19 +131,7 @@ fi
 chmod 600 "$CFG_DIR/config.toml"
 
 # --- servizio systemd utente -------------------------------------------------
-cat >"$UNIT" <<EOF
-[Unit]
-Description=DeckWatch - monitor del tempo di gioco
-After=graphical-session.target
-
-[Service]
-ExecStart=/usr/bin/env python3 $INSTALL_DIR/deckwatch.py run
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
+python3 "$INSTALL_DIR/deckwatch.py" install-service >/dev/null   # avviatore + unità systemd
 systemctl --user daemon-reload
 
 # --- collegamento dei genitori al bot Telegram ---------------------------------
@@ -168,10 +156,11 @@ cat <<EOF
 
 Fatto. Comandi utili (Konsole):
   deckwatch status              tempo di oggi
-  deckwatch check               verifica le regole ($CFG_DIR/policy.toml)
+  deckwatch check               verifica impostazioni e limiti
   deckwatch games               elenco giochi Steam con appid
   deckwatch fg --watch          mostra l'app in primo piano (per scrivere le regole)
   deckwatch test                messaggio di prova su Telegram/email
+  deckwatch test-notifiche      prova notifiche, popup e suono (con un gioco a tutto schermo)
   journalctl --user -u $APP -f  log in tempo reale
 EOF
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

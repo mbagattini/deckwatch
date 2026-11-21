@@ -21,6 +21,8 @@ token = ""
 parents = []
 # (facoltativo) chat id del figlio, se usa Telegram: riceve il suo report.
 kid = []
+# Descrizione del bot mostrata su Telegram.
+description = "Monitor del tempo sulla Deck"
 
 [email]
 # Invio tramite Brevo (brevo.com, piano gratuito). Dati in Brevo:

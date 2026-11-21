@@ -1,4 +1,6 @@
 import datetime as dt
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -7,30 +9,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import deckwatch as d  # noqa: E402
 
-POLICY = """
-mode = "enforce"
-idle_minutes = 3
-lock_grace_seconds = 60
-[grace]
-minutes = 5
-warn_before = [10, 5, 1]
-relaunch_seconds = 20
-[total]
-soft = 100
-hard = 120
-weekend = { hard = 180 }
-[apps.gd]
-name = "Geometry Dash"
+LIMITS = """
+[totale]
+feriale = { concordato = 120, massimo = 125 }
+festivo = { concordato = 180, massimo = 185 }
+
+[app.gd]
+nome = "Geometry Dash"
 match = ["steam:322170"]
-soft = 45
-hard = 60
-[apps.browser]
-name = "Browser"
+feriale = { concordato = 60, massimo = 65 }
+festivo = { concordato = 60, massimo = 65 }
+
+[app.browser]
+nome = "Browser"
 match = ["class:firefox"]
 """
 
 GD = d.Foreground("steam:322170", "Geometry Dash", steam_appid="322170")
 FF = d.Foreground("class:firefox", "firefox", window=5)
+MC = d.Foreground("class:minecraft", "Minecraft", window=6)
 STEAM = d.Foreground("class:steam", "steam", window=7)
 SHELL = d.Foreground("class:plasmashell", "plasmashell")
 
@@ -39,18 +36,24 @@ class FakePlatform:
     def __init__(self):
         self.fg = None
         self.idle = 0.0
+        self.school = False
         self.notes, self.popups, self.kills, self.steam_kills = [], [], [], []
+        self.alarms = 0
         self.games = {}
         self.powered_off = False
+        self.library = {"322170": "Geometry Dash", "1145360": "Hades"}
 
     def foreground(self): return self.fg
     def idle_seconds(self): return self.idle
     def notify(self, t, b, urgent=False): self.notes.append((t, b, urgent))
     def popup(self, text): self.popups.append(text)
+    def alarm(self): self.alarms += 1
     def kill(self, fg): self.kills.append(fg.key); self.fg = None
     def kill_steam(self, appid): self.steam_kills.append(appid); self.games.pop(appid, None)
     def running_steam_games(self): return dict(self.games)
-    def steam_name(self, appid): return {"322170": "Geometry Dash"}.get(appid)
+    def steam_name(self, appid): return self.library.get(appid)
+    def steam_find(self, t): return [(a, n) for a, n in self.library.items() if t in n.lower()]
+    def firefox_school_ok(self, sites): return self.school
     def poweroff(self): self.powered_off = True
 
 
@@ -62,283 +65,411 @@ class FakeOutbox:
 
 
 class Base(unittest.TestCase):
-    policy_text = POLICY
+    policy_text = 'mode = "monitor"'
+    limits_text = LIMITS
+    start = dt.datetime(2026, 11, 19, 15, 0, 0)  # giovedì (feriale)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name)
         self.pf = FakePlatform()
         self.ob = FakeOutbox()
         self.cfg = d.Config(tg_token="x", tg_parents=[1, 2])
-        self.store = d.DayStore(root / "days")
-        self.eng = d.Engine(self.pf, self.store, self.ob, self.cfg,
-                            d.Policy(d.load_toml_text(self.policy_text)),
-                            d.JsonFile(root / "ov.json"))
-        self.now = dt.datetime(2026, 11, 19, 15, 0, 0)  # giovedì
+        self.store = d.DayStore(self.root / "days")
+        self.saved = []
+        self.overrides = d.JsonFile(self.root / "ov.json")
+        self.meta = d.JsonFile(self.root / "meta.json")
+        self.eng = self.make_engine()
+        self.now = self.start
         self.eng.start(self.now)
+
+    def make_engine(self):
+        pol = d.Policy(d.load_toml_text(self.policy_text))
+        lim = d.Limits(d.load_toml_text(self.limits_text), pol.default_hard_margin)
+        return d.Engine(self.pf, self.store, self.ob, self.cfg, pol, lim, self.overrides,
+                        self.meta, save_limits=self.saved.append)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_for(self, seconds, step=5):
+    def run_for(self, seconds, step=10):
         t = 0
         while t < seconds:
             self.now += dt.timedelta(seconds=step)
             self.eng.tick(self.now, step)
             t += step
 
+    def cmd(self, text, who="Papà", chat=1):
+        return self.eng.handle_command(chat, who, text, self.now.timestamp(), self.now)
+
+    def titles(self):
+        return [n[0] for n in self.pf.notes]
+
 
 class CountingTests(Base):
     def test_counts_only_active_foreground(self):
-        self.pf.fg = FF
+        self.pf.fg = MC
         self.run_for(60)
         self.assertAlmostEqual(self.eng.state["total"], 60)
-        self.pf.idle = 400  # inattivo
+        self.pf.idle = 130  # oltre 2 minuti: inattivo
         self.run_for(60)
         self.assertAlmostEqual(self.eng.state["total"], 60)
         self.pf.idle = 0
         self.pf.fg = SHELL  # escluso
         self.run_for(60)
-        self.assertAlmostEqual(self.eng.state["total"], 60)
         self.pf.fg = None
         self.run_for(60)
         self.assertAlmostEqual(self.eng.state["total"], 60)
 
-    def test_usage_grouped_by_app_rule(self):
-        self.pf.fg = GD
-        self.run_for(120)
-        self.assertAlmostEqual(self.eng.usage_by_app()["gd"], 120)
+    def test_school_firefox_not_counted(self):
+        self.pf.fg = FF
+        self.pf.school = True
+        self.run_for(600)
+        self.assertAlmostEqual(self.eng.state["total"], 0)
+        self.assertAlmostEqual(self.eng.state["school"], 600)
+        self.pf.school = False  # c'è una scheda non della scuola
+        self.run_for(60)
+        self.assertAlmostEqual(self.eng.state["total"], 60)
+        body = d.build_report(self.eng.state, self.eng.limits, "parents")[1]
+        self.assertIn("📚 Scuola: 10 min (non conteggiato)", body)
 
 
-class AppLimitTests(Base):
-    def test_soft_warn_hard_grace_kill_and_relaunch(self):
+class MonitorTests(Base):
+    def test_soft_then_hard_simulated(self):
         self.pf.fg = GD
-        self.run_for(45 * 60)
-        self.assertTrue(any("soglia" in n[0] for n in self.pf.notes))
-        self.run_for(10 * 60)
-        self.assertTrue(any("mancano" in n[0] for n in self.pf.notes))
-        self.run_for(5 * 60)  # 60 min: tempo finito
-        self.assertTrue(any("tempo finito" in n[0] for n in self.pf.notes))
+        self.run_for(60 * 60)
+        self.assertIn("⏰ Tempo concordato terminato", self.titles())
+        self.assertIn("Il tempo concordato per Geometry Dash è terminato. Chiudi appena possibile.",
+                      [n[1] for n in self.pf.notes])
+        self.assertGreaterEqual(self.pf.alarms, 1)
+        self.assertEqual(self.titles().count("⏰ Tempo concordato terminato"), 1)
+        self.run_for(6 * 60)
+        hard = [n for n in self.pf.notes if n[0] == "⛔ Tempo massimo raggiunto"]
+        self.assertEqual(len(hard), 1)
+        self.assertIn("si sarebbe chiusa automaticamente", hard[0][1])
+        self.assertTrue(self.pf.popups)
         self.assertEqual(self.pf.kills, [])
-        self.run_for(4 * 60)  # in grazia
-        self.assertEqual(self.pf.kills, [])
-        self.run_for(65)  # grazia scaduta → chiusura immediata
+        sims = [e for e in self.eng.state["events"] if e[2] == "sim"]
+        self.assertEqual(len(sims), 1)
+
+    def test_no_countdown_by_default(self):
+        self.pf.fg = GD
+        self.run_for(59 * 60)
+        self.assertNotIn("⏳ Countdown", self.titles())
+
+    def test_pause_works_in_monitor_and_school_survives(self):
+        self.pf.fg = MC
+        self.cmd("/timer_pausa")
+        self.run_for(30)
+        self.assertEqual(self.pf.kills, [])  # 60 s per salvare
+        self.assertIn("⏸ Deck in pausa", self.titles())
+        self.run_for(40)
+        self.assertEqual(self.pf.kills, ["class:minecraft"])
+        self.pf.fg = FF
+        self.pf.school = True
+        self.run_for(60)
+        self.assertEqual(self.pf.kills, ["class:minecraft"])  # Firefox per la scuola resta
+        self.pf.school = False
+        self.run_for(10)
+        self.assertTrue(any("non è disponibile ora" in t for t in self.titles()))
+        self.run_for(30)
+        self.assertIn("class:firefox", self.pf.kills)
+        self.cmd("/timer_riprendi")
+        self.pf.fg = MC
+        self.run_for(60)
+        self.assertEqual(self.pf.kills.count("class:minecraft"), 1)
+
+    def test_pause_survives_restart_without_new_grace(self):
+        self.pf.fg = MC
+        self.cmd("/timer_pausa")
+        self.run_for(30)
+        eng2 = self.make_engine()
+        eng2.start(self.now)
+        self.eng = eng2
+        self.run_for(40)
+        self.assertEqual(self.pf.kills, ["class:minecraft"])
+
+    def test_spegni_simulated(self):
+        r = self.cmd("/timer_spegni_deck")
+        self.assertIn("NON è stata spenta", r)
+        self.assertFalse(self.pf.powered_off)
+        self.assertIn("⏻ Spegnimento (simulazione)", self.titles())
+
+
+class EnforceTests(Base):
+    policy_text = 'mode = "enforce"'
+
+    def test_hard_closes_and_relaunch(self):
+        self.pf.fg = GD
+        self.run_for(65 * 60 + 10)
         self.assertEqual(self.pf.kills, ["steam:322170"])
         self.assertTrue(any("Chiuso" in p[1] for p in self.ob.parents))
-        # riapre: avviso, poi chiusura dopo 20 s
         self.pf.fg = GD
-        self.run_for(5)
+        self.run_for(10)
         self.assertEqual(len(self.pf.kills), 1)
-        self.assertTrue(any("non consentito" in n[0] for n in self.pf.notes))
         self.run_for(20)
         self.assertEqual(len(self.pf.kills), 2)
-        # le altre app restano usabili
-        self.pf.fg = FF
+        self.pf.fg = MC  # le altre app restano usabili
         self.run_for(60)
         self.assertEqual(len(self.pf.kills), 2)
 
-    def test_background_steam_game_killed(self):
-        self.pf.fg = GD
-        self.run_for(66 * 60)
-        self.pf.fg = FF
-        self.pf.games = {"322170": [123]}
-        self.run_for(30)
-        self.assertIn("322170", self.pf.steam_kills)
-
-    def test_extra_from_telegram_unblocks(self):
-        self.pf.fg = GD
-        self.run_for(66 * 60)
-        self.assertEqual(len(self.pf.kills), 1)
-        reply = self.eng.handle_command(1, "Papà", "/extra gd 15", self.now.timestamp(), self.now)
-        self.assertIn("Fatto", reply)
-        self.assertTrue(any("Papà" in m[1] for m in self.ob.direct))  # avvisato l'altro genitore
-        self.pf.fg = GD
-        self.run_for(10 * 60)
-        self.assertEqual(len(self.pf.kills), 1)
-        self.run_for(10 * 60)  # supera i nuovi 75 min + grazia
-        self.assertGreaterEqual(len(self.pf.kills), 2)
-
-
-class TotalAndLockTests(Base):
-    def test_total_blocks_non_allowed_only(self):
-        self.pf.fg = FF
-        self.run_for(126 * 60)
-        self.assertIn("class:firefox", self.pf.kills)
+    def test_total_blocks_except_allowed_and_school(self):
+        self.pf.fg = MC
+        self.run_for(125 * 60 + 10)
+        self.assertIn("class:minecraft", self.pf.kills)
         n = len(self.pf.kills)
         self.pf.fg = STEAM
-        self.run_for(120)
+        self.run_for(60)
+        self.pf.fg = FF
+        self.pf.school = True
+        self.run_for(60)
         self.assertEqual(len(self.pf.kills), n)
 
-    def test_lock_and_unlock(self):
-        self.pf.fg = FF
-        self.run_for(10)
-        self.eng.handle_command(1, "Mamma", "/stop", self.now.timestamp(), self.now)
-        self.run_for(30)
-        self.assertEqual(self.pf.kills, [])  # grazia del blocco
-        self.assertTrue(any("pausa" in n[0] for n in self.pf.notes))
-        self.run_for(40)
-        self.assertEqual(self.pf.kills, ["class:firefox"])
-        self.eng.handle_command(1, "Mamma", "/sblocca", self.now.timestamp(), self.now)
-        self.pf.fg = FF
+
+class TogetherTests(Base):
+    def test_together_not_counted_reminders_and_end(self):
+        self.pf.fg = GD
+        self.cmd("/insieme_inizio")
+        self.assertIn("👨‍👦 Modalità insieme attiva", self.titles())
+        self.run_for(70 * 60)
+        self.assertAlmostEqual(self.eng.state["total"], 0)
+        self.assertAlmostEqual(self.eng.state["together"], 70 * 60)
+        self.assertNotIn("⏰ Tempo concordato terminato", self.titles())
+        self.run_for(21 * 60)  # 91 min: primo promemoria su Deck e Telegram
+        rem = [p for p in self.ob.parents if "Modalità insieme attiva da" in p[1]]
+        self.assertEqual(len(rem), 1)
+        self.assertIn("👨‍👦 Modalità insieme", self.titles())
+        self.run_for(30 * 60)
+        rem = [p for p in self.ob.parents if "Modalità insieme attiva da" in p[1]]
+        self.assertEqual(len(rem), 2)
+        self.assertEqual(self.titles().count("👨‍👦 Modalità insieme"), 1)  # sulla Deck solo il primo
+        self.cmd("/insieme_fine")
         self.run_for(60)
-        self.assertEqual(self.pf.kills, ["class:firefox"])
+        self.assertAlmostEqual(self.eng.state["total"], 60)
 
-    def test_timed_lock_expires(self):
-        self.eng.handle_command(1, "Mamma", "/stop 10", self.now.timestamp(), self.now)
-        self.assertTrue(self.eng.locked(self.now))
-        self.assertFalse(self.eng.locked(self.now + dt.timedelta(minutes=11)))
+    def test_together_suspends_pause(self):
+        self.pf.fg = MC
+        self.cmd("/timer_pausa")
+        self.cmd("/insieme_inizio")
+        self.run_for(300)
+        self.assertEqual(self.pf.kills, [])
+        self.cmd("/insieme_fine")
+        self.run_for(30)
+        self.assertEqual(self.pf.kills, [])  # nuova grazia di 60 s
+        self.run_for(40)
+        self.assertEqual(self.pf.kills, ["class:minecraft"])
 
-    def test_stale_poweroff_ignored(self):
-        old = (self.now - dt.timedelta(hours=2)).timestamp()
-        r = self.eng.handle_command(1, "Papà", "/spegni", old, self.now)
-        self.assertIn("ignorato", r)
+    def test_together_closed_at_midnight(self):
+        self.cmd("/insieme_inizio")
+        self.now = dt.datetime(2026, 11, 20, 0, 0, 5)
+        self.eng.tick(self.now, 10)
+        self.assertIsNone(self.eng.together())
+        self.assertTrue(any("mezzanotte" in p[1] for p in self.ob.parents))
 
 
-class ShutdownPolicy(Base):
-    policy_text = POLICY.replace("relaunch_seconds = 20",
-                                 "relaunch_seconds = 20\non_total_exceeded = \"shutdown\"")
+class DayTypeTests(Base):
+    def test_weekend_is_festivo_and_override(self):
+        self.assertEqual(self.eng.day_type(dt.date(2026, 11, 21)), "festivo")
+        self.assertEqual(self.eng.day_type(dt.date(2026, 11, 19)), "feriale")
+        r = self.cmd("/timer_considera_oggi_festivo")
+        self.assertIn("festivo", r)
+        total, _ = self.eng.limits_now(self.now.date())
+        self.assertEqual(total.soft, 180)
+        self.cmd("/timer_considera_oggi_feriale")
+        total, _ = self.eng.limits_now(self.now.date())
+        self.assertEqual(total.soft, 120)
 
-    def test_shutdown_on_total(self):
-        self.pf.fg = FF
-        self.run_for(126 * 60)
-        self.assertTrue(self.pf.powered_off)
+
+class CommandTests(Base):
+    def test_limite_imposta_by_steam_name_creates_rule(self):
+        r = self.cmd("/limite_imposta hades 45")
+        self.assertIn("concordato 45 min, massimo 50 min", r)
+        aid = self.eng.limits.find_app("hades")
+        self.assertEqual(self.eng.limits.apps[aid].patterns, ["steam:1145360"])
+        self.assertTrue(self.saved)
+        self.assertTrue(any("Papà" in m[1] for m in self.ob.direct))  # avvisato l'altro genitore
+
+    def test_limite_imposta_variants(self):
+        self.cmd("/limite_imposta geometry dash festivo 90 100")
+        lim = self.eng.limits.apps["gd"].limits
+        self.assertEqual((lim["festivo"].soft, lim["festivo"].hard), (90, 100))
+        self.assertEqual(lim["feriale"].soft, 60)
+        self.cmd("/limite_imposta totale feriale 100")
+        self.assertEqual((self.eng.limits.total["feriale"].soft,
+                          self.eng.limits.total["feriale"].hard), (100, 105))
+        self.cmd("/limite_rimuovi geometry dash")
+        self.assertTrue(self.eng.limits.apps["gd"].limits["feriale"].empty)
+        self.assertIn("Uso:", self.cmd("/limite_imposta"))
+        self.assertIn("Non trovo", self.cmd("/limite_imposta pippo 30"))
+
+    def test_saved_limits_roundtrip(self):
+        self.cmd("/limite_imposta hades 45")
+        self.cmd("/configura_aggiungi_sito_scuola https://www.treccani.it/enciclopedia/roma")
+        L = self.eng.limits
+        L2 = d.Limits(d.load_toml_text(L.to_toml()), 5)
+        self.assertEqual(d.limits_diff(L, L2), [])
+        self.assertIn("treccani.it", L2.school_sites)
+
+    def test_school_sites_commands(self):
+        r = self.cmd("/configura_aggiungi_sito_scuola it.wikipedia.org")
+        self.assertIn("aggiunto", r)
+        self.assertIn("già", self.cmd("/configura_aggiungi_sito_scuola it.wikipedia.org"))
+        self.cmd("/configura_rimuovi_sito_scuola it.wikipedia.org")
+        self.assertNotIn("it.wikipedia.org", self.eng.limits.school_sites)
+        self.assertIn("nuvola.madisoft.it", self.cmd("/info_scuola"))
+
+    def test_nome_app_and_new_app_alert(self):
+        game = d.Foreground("class:game.exe", "game.exe", title="Fortnite")
+        self.pf.fg = game
+        self.run_for(4 * 60)
+        self.assertFalse(any("Nuova app" in p[1] for p in self.ob.parents))
+        self.run_for(70)
+        alerts = [p for p in self.ob.parents if "Nuova app" in p[1]]
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("/configura_nome_app class:game.exe Nome", alerts[0][1])
+        self.cmd("/configura_nome_app class:game.exe Fortnite")
+        self.assertIn("Fortnite — class:game.exe", self.cmd("/info_app"))
+        self.cmd("/limite_imposta fortnite 30")
+        aid = self.eng.limits.find_app("fortnite")
+        self.assertEqual(self.eng.limits.apps[aid].limits["feriale"].soft, 30)
+        self.run_for(600)
+        self.assertEqual(len([p for p in self.ob.parents if "Nuova app" in p[1]]), 1)
+
+    def test_extra_available_in_monitor(self):
+        r = self.cmd("/timer_concedi_extra geometry dash 15")
+        self.assertIn("Fatto", r)
+        _, apps = self.eng.limits_now(self.now.date())
+        self.assertEqual((apps["gd"].soft, apps["gd"].hard), (75, 80))
+
+    def test_help_lists_all_commands(self):
+        h = self.cmd("/info_comandi")
+        for name, _, _ in d.COMMANDS:
+            self.assertIn("/" + name, h)
+        self.assertEqual(self.cmd("/start"), h)
+        self.assertTrue(all(len(c) <= 32 and c.replace("_", "").isalnum() and c == c.lower()
+                            for c, _, _ in d.COMMANDS))
 
 
 class ReportTests(Base):
-    def test_daily_report_sent_at_rollover(self):
+    def test_daily_report_at_rollover_and_layout(self):
         self.pf.fg = GD
         self.run_for(30 * 60)
-        self.now = self.now.replace(hour=23, minute=59, second=50)
-        self.eng.tick(self.now, 5)
-        self.assertEqual(self.ob.parents, [])  # niente report in serata
         self.now = dt.datetime(2026, 11, 20, 0, 0, 5)
-        self.eng.tick(self.now, 5)
-        self.assertEqual(self.eng.state["date"], "2026-11-20")
-        self.assertEqual(len(self.ob.parents), 1)
-        self.assertEqual(len(self.ob.kid), 1)
-        body = self.ob.parents[0][1]
-        self.assertLess(body.index("RIEPILOGO"), body.index("DETTAGLIO"))
-        self.assertIn("✅ Geometry Dash: 30 min / 1h 00m", body)
-
-    def test_report_shows_overs_for_kid(self):
-        self.pf.fg = GD
-        self.run_for(64 * 60)
-        subj, body = d.build_report(self.eng.state, self.eng.policy, "kid")
-        self.assertIn("❌ Geometry Dash: 1h 04m / 1h 00m (+4 min)", body)
-        self.assertIn("oltre il tempo concordato per: Geometry Dash", body)
-        self.assertNotIn("EVENTI", body)
-
-    def test_missed_report_sent_at_next_start(self):
-        self.pf.fg = FF
-        self.run_for(600)
-        self.eng.save()
-        eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
-        eng2.start(dt.datetime(2026, 11, 21, 9, 0))
+        self.eng.tick(self.now, 10)
         daily = [p for p in self.ob.parents if p[0].startswith("DeckWatch 19/11")]
         self.assertEqual(len(daily), 1)
-        self.assertIn("giovedì", daily[0][1])
+        body = daily[0][1]
+        self.assertIn("giorno feriale", body)
+        self.assertLess(body.index("RIEPILOGO"), body.index("DETTAGLIO"))
+        self.assertIn("✅ Geometry Dash: 30 min / 1h 00m", body)
+        self.assertEqual(len([k for k in self.ob.kid if "giovedì" in k[0]]), 1)
 
-    def test_restart_keeps_counters(self):
-        self.pf.fg = FF
-        self.run_for(600)
-        self.eng.save()
-        eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
-        eng2.start(self.now)
-        self.assertAlmostEqual(eng2.state["total"], 600)
-
-
-MONITOR = POLICY.replace('mode = "enforce"', 'mode = "monitor"')
-
-
-class MonitorModeTests(Base):
-    policy_text = MONITOR
-
-    def test_no_kill_but_simulation_and_warnings(self):
-        self.pf.fg = GD
-        self.run_for(70 * 60)
-        self.assertEqual(self.pf.kills, [])
-        self.assertTrue(any("tempo finito" in n[0] for n in self.pf.notes))
-        self.assertTrue(any("solo un avviso" in n[1] for n in self.pf.notes))
-        sims = [e for e in self.eng.state["events"] if e[2] == "sim"]
-        self.assertEqual(len(sims), 1)
-        body = d.build_report(self.eng.state, self.eng.policy, "parents")[1]
-        self.assertIn("(simulazione) Geometry Dash sarebbe stato chiuso", body)
-
-    def test_lock_still_works(self):
-        self.pf.fg = FF
-        self.eng.handle_command(1, "Mamma", "/stop", self.now.timestamp(), self.now)
-        self.run_for(70)
-        self.assertEqual(self.pf.kills, ["class:firefox"])
-
-    def test_extra_disabled(self):
-        r = self.eng.handle_command(1, "Papà", "/extra 30", self.now.timestamp(), self.now)
-        self.assertIn("monitor", r)
-        self.assertNotIn("/extra", self.eng.help_text())
-
-
-class WeeklyTests(Base):
-    def test_weekly_sent_once_on_saturday(self):
-        # giovedì 19 e venerdì 20 con attività
+    def test_weekly_on_saturday(self):
         self.pf.fg = GD
         self.run_for(30 * 60)
         self.now = dt.datetime(2026, 11, 20, 15, 0)
-        self.run_for(70 * 60)
-        self.assertEqual(len([p for p in self.ob.parents if p[0].startswith("DeckWatch 19/11")]), 1)
-        weekly_before = [p for p in self.ob.parents if "settimana" in p[0]]
-        # sabato mattina: report di venerdì + settimanale
+        self.run_for(62 * 60)  # venerdì: oltre il concordato di GD
         self.now = dt.datetime(2026, 11, 21, 9, 0)
-        self.eng.tick(self.now, 5)
+        self.eng.tick(self.now, 10)
         weekly = [p for p in self.ob.parents if "settimana" in p[0]]
-        self.assertEqual(len(weekly) - len(weekly_before), 1)
-        body = weekly[-1][1]
-        self.assertIn("settimana 14/11 – 20/11", body)
-        self.assertIn("Geometry Dash: 1h 35m — oltre il limite 1 giorno", body)
-        self.assertIn("❌ ven 20/11", body)
-        self.assertTrue(any("settimana" in k[0] for k in self.ob.kid))
-        # domenica: non lo rimanda
+        self.assertEqual(len(weekly), 1)
+        self.assertIn("Geometry Dash: 1h 32m — oltre il concordato 1 giorno", weekly[0][1])
         self.now = dt.datetime(2026, 11, 22, 9, 0)
-        self.eng.tick(self.now, 5)
-        self.assertEqual(len([p for p in self.ob.parents if "settimana" in p[0]]), len(weekly))
-
-    def test_weekly_after_deck_off_all_weekend(self):
-        self.pf.fg = FF
-        self.run_for(600)
-        self.eng.save()
-        eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
-        eng2.start(dt.datetime(2026, 11, 23, 8, 0))  # lunedì
+        self.eng.tick(self.now, 10)
         self.assertEqual(len([p for p in self.ob.parents if "settimana" in p[0]]), 1)
 
-    def test_last_friday(self):
-        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 21)), dt.date(2026, 11, 20))
-        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 20)), dt.date(2026, 11, 13))
-        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 23)), dt.date(2026, 11, 20))
+    def test_week_so_far_command(self):
+        self.pf.fg = MC
+        self.run_for(600)
+        r = self.cmd("/report_settimana")
+        self.assertIn("settimana 14/11 – 19/11 (fin qui)", r)
 
 
-class PolicyTests(unittest.TestCase):
-    def test_weekend_and_exceptions(self):
-        p = d.Policy(d.load_toml_text(POLICY + """
-[exceptions.2026-11-19]
-extra = 30
-apps = { gd = 15 }
-[exceptions.2026-11-20]
-unlimited = true
-"""))
-        t, a = p.day_limits(dt.date(2026, 11, 21))
-        self.assertEqual(t.hard, 180)
-        t, a = p.day_limits(dt.date(2026, 11, 19))
-        self.assertEqual((t.soft, t.hard, a["gd"].hard), (130, 150, 75))
-        t, a = p.day_limits(dt.date(2026, 11, 20))
-        self.assertIsNone(t.hard)
+class MigrationTests(unittest.TestCase):
+    def test_legacy_policy_to_limits(self):
+        old = d.load_toml_text("""
+mode = "monitor"
+idle_minutes = 3
+[grace]
+minutes = 5
+relaunch_seconds = 25
+[total]
+soft = 100
+hard = 120
+weekend = { soft = 150, hard = 180 }
+[apps.geometry_dash]
+name = "Geometry Dash"
+match = ["steam:322170"]
+soft = 45
+hard = 60
+""")
+        pol = d.Policy(old)
+        self.assertTrue(pol.legacy)
+        L = d.migrate_legacy_limits(old, 5)
+        self.assertEqual((L.total["feriale"].soft, L.total["feriale"].hard), (120, 125))
+        self.assertEqual((L.total["festivo"].soft, L.total["festivo"].hard), (180, 185))
+        self.assertEqual(L.apps["geometry_dash"].limits["festivo"].soft, 60)
+        newpol = d.Policy(d.load_toml_text(d.render_policy(d.migrate_policy_values(old))))
+        self.assertEqual(newpol.idle_minutes, 2)
+        self.assertEqual(newpol.relaunch_seconds, 25)
+        self.assertFalse(newpol.legacy)
 
-    def test_errors_are_readable(self):
-        for bad in ("[total]\nhard = \"due ore\"", "[apps.x]\nhard = 3",
-                    "[total]\nsatu = { hard = 3 }", "[exceptions.2026-13-40]\nextra = 1",
-                    "lok = true"):
-            with self.assertRaises(d.PolicyError):
-                d.Policy(d.load_toml_text(bad))
+    def test_example_files_valid(self):
+        root = Path(__file__).resolve().parent.parent
+        d.Policy(d.load_toml_text((root / "policy.example.toml").read_text()))
+        self.assertEqual((root / "policy.example.toml").read_text(), d.render_policy())
 
-    def test_example_policy_is_valid(self):
-        d.load_policy_file(Path(__file__).resolve().parent.parent / "policy.example.toml")
+
+def lz4_literals(data: bytes) -> bytes:
+    n = len(data)
+    if n < 15:
+        return bytes([n << 4]) + data
+    rest, out = n - 15, bytearray([0xF0])
+    while rest >= 255:
+        out.append(255)
+        rest -= 255
+    out.append(rest)
+    return bytes(out) + data
+
+
+class FirefoxTests(unittest.TestCase):
+    def test_lz4(self):
+        self.assertEqual(d.lz4_block_decompress(b"\x35abc\x03\x00"), b"abcabcabcabc")
+        data = b"x" * 300 + b"fine"
+        self.assertEqual(d.lz4_block_decompress(lz4_literals(data)), data)
+
+    def test_url_rules(self):
+        sites = [d._norm_site(s) for s in d.DEFAULT_SCHOOL_SITES]
+        ok = ["https://it.wikipedia.org/wiki/Roma", "https://wikipedia.org", "about:newtab",
+              "https://nuvola.madisoft.it/login", "https://docs.google.com/document/1"]
+        ko = ["https://www.youtube.com/", "https://sites.google.com/view/giochi",
+              "https://www.google.com/search?q=snake", "file:///home/deck/x.html",
+              "about:reader?url=https%3A%2F%2Fpoki.com%2F"]
+        for u in ok:
+            self.assertTrue(d.firefox_url_ok(u, sites), u)
+        for u in ko:
+            self.assertFalse(d.firefox_url_ok(u, sites), u)
+        self.assertEqual(d._norm_site("https://www.treccani.it/x"), "treccani.it")
+        self.assertTrue(d.site_allowed("www.treccani.it", ["treccani.it"]))
+
+    def test_session_reader_all_tabs(self):
+        with tempfile.TemporaryDirectory() as t:
+            prof = Path(t) / "abc.default"
+            (prof / "sessionstore-backups").mkdir(parents=True)
+            (prof / "prefs.js").write_text("")
+            os.symlink("127.0.0.1:+1234", prof / "lock")
+            sess = {"windows": [{"tabs": [
+                {"entries": [{"url": "https://it.wikipedia.org/wiki/A"}], "index": 1},
+                {"entries": [{"url": "https://www.youtube.com/"},
+                             {"url": "https://it.wikipedia.org/wiki/B"}], "index": 2}]}]}
+            raw = json.dumps(sess).encode()
+            f = prof / "sessionstore-backups" / "recovery.jsonlz4"
+            f.write_bytes(b"mozLz40\0" + len(raw).to_bytes(4, "little") + lz4_literals(raw))
+            fs = d.FirefoxSession()
+            fs.roots = [Path(t)]
+            urls, n = fs.read()
+            self.assertEqual(n, 1)
+            self.assertEqual(urls, ["https://it.wikipedia.org/wiki/A", "https://it.wikipedia.org/wiki/B"])
 
 
 if __name__ == "__main__":

@@ -1,172 +1,125 @@
 # DeckWatch
 
-Monitor del tempo di gioco per **Steam Deck** (SteamOS, Modalità Desktop e Modalità Gioco).
+Monitor del tempo di gioco per **Steam Deck** (SteamOS, soprattutto Modalità Desktop,
+ma funziona anche in Modalità Gioco).
 
-- Misura il tempo **per app/gioco**: conta solo l'app in primo piano, a Deck accesa
-  e con input recente (tastiera, mouse, touch, controlli).
-- Limiti **soft** (solo avviso) e **hard**: totali per giorno della settimana e,
-  facoltativi, per singola app.
-- Due modalità: **monitor** (predefinita: solo avvisi, e nel report cosa sarebbe
-  stato chiuso) ed **enforce** (chiusura dopo il tempo di grazia).
-- **Report giornaliero** e **riepilogo settimanale** ai genitori su Telegram e al
-  figlio via email.
-- **Comandi remoti** dal bot Telegram: stato, report, blocco (kill-switch) e sblocco;
-  in modalità enforce anche minuti extra e spegnimento.
-- Solo Python standard, installato nella home: niente `sudo` e sopravvive agli
-  aggiornamenti di SteamOS. Si aggiorna da solo.
+Guide in linguaggio semplice:
+- [Guida per i genitori](docs/GUIDA_GENITORI.md)
+- [Guida per il ragazzo](docs/GUIDA_RAGAZZO.md)
 
-## Come funziona il bot Telegram
+Questo file contiene i dettagli tecnici.
 
-Il bot non va ospitato: Telegram fa da casella postale. Lo script sulla Deck
-controlla ogni pochi secondi se ci sono messaggi nuovi, esegue i comandi e risponde.
-A Deck spenta i comandi restano in attesa (fino a 24 ore) e vengono eseguiti alla
-riaccensione. Un `/spegni` arrivato con più di 10 minuti di ritardo viene ignorato.
+## Cosa fa
 
-## Preparazione (una volta sola, dal telefono o dal PC)
+- **Conteggio del tempo per app:** conta solo l'app in primo piano, con la Deck non
+  sospesa e con input negli ultimi 2 minuti (tastiera, mouse, touch, controlli).
+- **Limiti per tipo di giorno:** feriale (lun–ven) e festivo (sab–dom). Il totale
+  della giornata ha sempre un limite; le singole app solo se lo imposti. Ogni limite
+  ha due valori:
+  - *concordato*: arriva un avviso "chiudi appena possibile";
+  - *massimo*: in modalità enforce l'app si chiude; in modalità monitor arriva solo un
+    avviso.
+- **Whitelist della scuola:** non conta come svago solo quando Firefox è in primo
+  piano e **tutte** le schede aperte sono su siti della whitelist.
+- **Modalità insieme:** il tempo passato a giocare con i genitori non conta.
+- **Report:** giornaliero e settimanale (sabato→venerdì), ai genitori su Telegram e al
+  figlio via email (Brevo).
+- **Bot Telegram:** comandi per i genitori, con il menu registrato automaticamente.
+- **Anti-manomissione di base:** avvisa se il servizio viene fermato, se la Deck viene
+  usata senza DeckWatch o se l'orologio viene spostato; nel report segnala le
+  modifiche fatte a mano ai file e l'uso senza connessione.
+- **Aggiornamento automatico:** una volta al giorno, in un momento in cui non sta
+  giocando. Se una versione nuova va in crash torna alla precedente.
+- **Requisiti:** solo Python standard, installato nella home; non serve `sudo`.
 
-1. **Bot Telegram:** su Telegram apri `@BotFather` e scrivi `/newbot`. Scegli un
-   nome, per esempio "DeckWatch Famiglia", e copia il **token** che ti dà.
-2. **Brevo per il report email al figlio** (facoltativo): crea un account gratuito su
-   brevo.com. In *Mittenti* aggiungi e conferma l'indirizzo da usare come mittente
-   (anche il tuo Gmail: Brevo non vi accede). In *Impostazioni → SMTP & API → SMTP*
-   crea una **chiave SMTP** e annota il **Login** mostrato lì. La chiave permette solo
-   di inviare email: se finisse in mani sbagliate non dà accesso a nessuna casella, e
-   si revoca con un clic. Le prime email potrebbero finire nello spam: segnale come
-   "non spam".
+## Installazione
 
-## Installazione sulla Deck
-
-1. Passa alla **Modalità Desktop** e apri **Konsole**.
-2. Esegui:
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.sh | bash
-   ```
-3. Rispondi alle domande: token del bot, dati Brevo, email del figlio.
-4. Quando richiesto, **entrambi i genitori** aprono il bot su Telegram e premono
-   **Avvia**. L'installer registra le vostre chat.
-5. Prova l'invio dei messaggi: `deckwatch test`.
-
-Il servizio parte da solo a ogni accensione, sia in Modalità Desktop sia in
-Modalità Gioco.
-
-**Aggiornamento:** è automatico, con un controllo al giorno. Per forzarlo:
-`deckwatch update`, oppure rilancia la riga `curl ... | bash` (configurazione e
-regole non vengono toccate).
-
-**Disinstallazione:** `bash ~/.local/share/deckwatch/install.sh --uninstall`
-(aggiungi `--purge` per cancellare anche regole, configurazione e dati).
-
-## Regole: `~/.config/deckwatch/policy.toml`
-
-Il file è commentato in italiano. Esempio:
-
-```toml
-[total]                 # tempo totale giornaliero
-soft = 100              # avviso
-hard = 120              # massimo: poi grazia e chiusura
-weekend = { soft = 150, hard = 180 }
-
-[apps.geometry_dash]
-name = "Geometry Dash"
-match = ["steam:322170"]
-soft = 45
-hard = 60
+Sulla Deck, in Modalità Desktop, apri Konsole:
+```bash
+curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.sh | bash
 ```
+- **Domande dell'installer:** compaiono solo alla prima installazione. Ti chiede il
+  token del bot Telegram, poi i dati Brevo (login SMTP, chiave SMTP, mittente
+  verificato) e l'email del figlio.
+- **Genitori:** ognuno apre il bot su Telegram e preme **Avvia**; l'installer
+  registra le chat.
+- **Prove:** `deckwatch test` verifica Telegram e l'email; `deckwatch test-notifiche`
+  verifica cosa si vede sulla Deck.
+- **Aggiornare:** rilancia la stessa riga, oppure usa `/configura_aggiorna` su
+  Telegram. Configurazione e limiti restano.
+- **Disinstallare:** `bash ~/.local/share/deckwatch/install.sh --uninstall`
+  (aggiungi `--purge` per cancellare anche configurazione e dati).
 
-- I giochi Steam si identificano con `steam:<appid>`. `deckwatch games` elenca
-  quelli installati.
-- Le altre app (browser, giochi non Steam) si identificano con `class:<nome>`.
-  `deckwatch fg --watch` mostra il nome dell'app in primo piano.
-- Il file viene ricaricato da solo entro circa 15 secondi. Se contiene un errore,
-  arriva un messaggio Telegram e resta in uso la versione precedente. Per
-  verificarlo: `deckwatch check`.
-- I limiti per app sono facoltativi: un gioco senza regola (per esempio Minecraft)
-  conta solo nel tempo totale del giorno.
-- Per un giorno particolare si usa la sezione `[exceptions.AAAA-MM-GG]`; in
-  modalità enforce ci sono anche le eccezioni al volo con `/extra` su Telegram.
+## File sulla Deck
 
-### Cosa succede al limite
+| File | Chi lo modifica | Contenuto |
+|---|---|---|
+| `~/.config/deckwatch/config.toml` | a mano, una volta | token Telegram, chat dei genitori, dati Brevo |
+| `~/.config/deckwatch/policy.toml` | a mano | impostazioni tecniche: modalità, inattività, margini, app escluse |
+| `~/.config/deckwatch/limiti.toml` | il bot (anche a mano) | limiti feriali/festivi, nomi delle app, siti della scuola |
+| `~/.local/state/deckwatch/` | il programma | dati delle giornate, coda dei messaggi, stato dei comandi |
 
-Con `mode = "monitor"` (predefinito):
+I file delle regole vengono ricaricati da soli entro circa 15 secondi. Se contengono
+un errore, arriva un messaggio su Telegram e resta in uso la versione precedente.
+Per verificarli: `deckwatch check`.
 
-1. **soft:** notifica.
-2. **Avvisi a −10, −5 e −1 minuti** dal limite hard.
-3. **Limite hard:** popup "tempo finito: per ora è solo un avviso".
-4. Nel report dei genitori compare "(simulazione) Geometry Dash sarebbe stato
-   chiuso". Non viene chiuso niente.
+Chi aggiornava da una versione precedente non deve fare niente: i limiti scritti nel
+vecchio `policy.toml` vengono spostati automaticamente in `limiti.toml`, e una copia
+del vecchio file resta in `policy.toml.bak`.
 
-Con `mode = "enforce"` i passi 1–3 sono uguali, poi:
+## Comandi Telegram
 
-4. **Fine della grazia** (5 minuti): il gioco viene chiuso e i genitori ricevono
-   un avviso.
-5. **Se lo riapre:** avviso, poi chiusura dopo 20 secondi.
-6. **Tempo totale finito:** si chiudono tutte le app, tranne quelle in
-   `always_allowed` (Steam, impostazioni, file). In alternativa,
-   `on_total_exceeded = "shutdown"` spegne la Deck.
-
-Il blocco remoto `/stop` funziona in entrambe le modalità.
-
-## Report
-
-- **Giornaliero:** parte a fine giornata, cioè alla prima accensione del giorno
-  dopo (o a mezzanotte se la Deck è accesa). Contiene la giornata intera.
-- **Settimanale** (da sabato a venerdì): parte alla prima accensione da sabato in
-  poi.
-- In alto c'è un **riepilogo** (✅ nei limiti, 🟡 oltre la soglia soft, ❌ oltre il
-  limite hard), sotto il **dettaglio** per app. Il report dei genitori ha in più
-  gli **eventi** (limiti raggiunti, simulazioni, chiusure, comandi).
-- Durante il giorno: `/oggi` su Telegram.
-
-## Comandi Telegram (solo per i genitori)
+Scrivi `/` o tocca il pulsante **Menu** per l'elenco. Se tocchi un comando che
+richiede dati, il bot risponde con un esempio.
 
 | Comando | Effetto |
 |---|---|
-| `/stato` | cosa sta usando ora e il tempo di oggi |
-| `/oggi` | report di oggi fin qui |
-| `/limiti` | limiti di oggi, con gli extra |
-| `/stop` | blocca la Deck finché non arriva `/sblocca` (60 secondi per salvare, poi chiude tutto e mostra un popup) |
-| `/stop 60` | blocca per 60 minuti |
-| `/sblocca` | toglie il blocco |
-| `/extra 30` | solo enforce: 30 minuti in più sul totale di oggi (anche negativi) |
-| `/extra geometry_dash 15` | solo enforce: 15 minuti in più a un'app |
-| `/spegni` | solo enforce: spegne la Deck tra 30 secondi |
+| `/report_oggi`, `/report_settimana` | report di oggi e della settimana fin qui |
+| `/info_stato` | cosa sta usando ora e il tempo di oggi |
+| `/info_limiti` | limiti in vigore e tipo di giorno |
+| `/info_app` | app viste negli ultimi 7 giorni, con identificativo |
+| `/info_scuola` | siti della scuola |
+| `/info_versione` | versione installata e ultimo controllo degli aggiornamenti |
+| `/info_comandi` | elenco dei comandi con esempi |
+| `/timer_pausa [minuti]`, `/timer_riprendi` | pausa dello svago (Firefox sui siti della scuola resta utilizzabile) |
+| `/timer_concedi_extra [app] minuti` | minuti in più solo per oggi |
+| `/timer_considera_oggi_festivo` / `_feriale` | cambia il tipo di giorno di oggi |
+| `/timer_spegni_deck` | spegne la Deck (in monitor: avviso simulato) |
+| `/insieme_inizio [minuti]`, `/insieme_fine` | modalità insieme (promemoria predefinito a 90 minuti) |
+| `/limite_imposta <app\|totale> [feriale\|festivo] concordato [massimo]` | massimo predefinito: concordato + 5 |
+| `/limite_rimuovi <app\|totale> [feriale\|festivo]` | toglie un limite |
+| `/configura_nome_app <identificativo> <nome>` | dà un nome leggibile a un'app |
+| `/configura_aggiungi_sito_scuola`, `/configura_rimuovi_sito_scuola` | gestione della whitelist |
+| `/configura_aggiorna` | aggiorna subito |
 
-Ogni comando viene notificato anche all'altro genitore.
+Ogni modifica viene notificata anche all'altro genitore.
 
 ## Comandi sulla Deck
 
 ```
 deckwatch status          tempo di oggi
-deckwatch check           verifica policy.toml e mostra i limiti della settimana
+deckwatch check           verifica policy.toml e limiti.toml
 deckwatch games           giochi Steam installati con appid
-deckwatch fg --watch      app in primo piano e inattività (per scrivere le regole)
+deckwatch fg --watch      app in primo piano, inattività, stato "scuola" di Firefox
 deckwatch report --date 2026-11-19 [--send]
-deckwatch test            messaggi di prova
-deckwatch telegram-setup --save   aggiunge un genitore (servizio fermo)
+deckwatch test            messaggi di prova Telegram ed email
+deckwatch test-notifiche  prova notifiche, popup e suono
+deckwatch telegram-setup --save   aggiunge un genitore (a servizio fermo)
 journalctl --user -u deckwatch -f log
 ```
 
-## Limiti noti
+## Note tecniche
 
-- **Modalità Gioco:** le notifiche desktop non sono visibili. Conteggio, limiti e
-  chiusura funzionano, ma gli avvisi soft non si vedono. È uno sviluppo futuro
-  (plugin Decky Loader).
-- **Browser:** conta come un'unica app, senza dettaglio per sito (scelta voluta).
-- **Nessuna protezione anti-manomissione:** chi conosce Linux può fermare il
-  servizio. Il sistema si basa sulla fiducia, come concordato.
-- **Inattività con gamepad:** in Modalità Desktop viene rilevata leggendo i
-  dispositivi di input accessibili all'utente. Se non lo sono, conta l'inattività di
-  tastiera, mouse e touch, e un gioco usato solo col gamepad potrebbe risultare
-  "inattivo" dopo `idle_minutes`. Verifica con `deckwatch fg --watch` e, se serve,
-  alza `idle_minutes`.
-
-## Spostare il repository
-
-Il repository deve essere **pubblico** perché installazione e aggiornamenti
-scarichino i file. Quando lo sposti:
-
-1. Cambia `REPO_RAW` in `install.sh` e l'URL qui sopra.
-2. Sulla Deck, cambia `update_url` in `~/.config/deckwatch/config.toml`.
+- **Campionamento:** l'app in primo piano viene controllata ogni 10 secondi; l'input
+  del gamepad ogni secondo.
+- **Priorità:** il servizio gira con priorità minima per processore e disco.
+- **Firefox:** il file di sessione (`recovery.jsonlz4`) viene aggiornato da Firefox
+  ogni circa 15 secondi. Gli indirizzi vengono solo confrontati con la whitelist e
+  non vengono salvati. Le finestre anonime non compaiono nella sessione: se esiste
+  una finestra di Firefox che la sessione non conosce, il tempo conta come svago.
+- **Modalità Gioco:** le notifiche di sistema non si vedono, il suono sì.
+- **Repository:** deve essere pubblico perché installazione e aggiornamenti
+  funzionino.
 
 ## Sviluppo
 
