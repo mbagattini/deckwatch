@@ -1,0 +1,167 @@
+# DeckWatch — memoria di progetto
+
+Questo file serve a riprendere il lavoro in una nuova sessione: contesto, decisioni prese,
+stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro significativa.
+
+## Contesto
+
+- **Cos'è:** un monitor del tempo di gioco per la Steam Deck di un ragazzo di 11 anni,
+  voluto dai genitori e concordato con lui (sistema basato sulla fiducia).
+- **Uso:** soprattutto in Modalità Desktop (KDE/X11), a volte in Modalità Gioco.
+- **Per chi:** i genitori sono due. Ricevono report e avvisi su Telegram e comandano il
+  bot. Il ragazzo riceve un report via email (Brevo).
+- **Come lavorare con l'utente:**
+  - parla italiano e spesso lavora dal telefono (app Claude iOS);
+  - preferisce discutere un punto alla volta e decidere tutto **prima** di scrivere
+    codice;
+  - quando è davanti alla Deck, le istruzioni vanno passo per passo, con i comandi
+    pronti da copiare.
+- **Privacy:** il repo è **pubblico**. Niente dati personali nel repo: email, chat id,
+  nome del ragazzo. La descrizione del bot con il suo nickname sta solo in
+  `config.toml` sulla Deck.
+
+## Architettura
+
+- **Codice:** un solo file, `deckwatch.py`, che usa solo la libreria standard di
+  Python (≥ 3.11). Installato in `~/.local/share/deckwatch/`, avviato come servizio
+  systemd utente tramite `launcher.py` (gestisce il ritorno alla versione precedente).
+  Il servizio gira con `Nice=19` e `IOSchedulingClass=idle`.
+- **File sulla Deck:**
+  - `~/.config/deckwatch/config.toml`: token Telegram, chat dei genitori, `description`
+    del bot, dati SMTP Brevo (`smtp-relay.brevo.com:587`, login SMTP, chiave SMTP,
+    mittente verificato).
+  - `~/.config/deckwatch/policy.toml`: impostazioni tecniche (modalità, inattività,
+    margini, countdown, app escluse e consentite). Lo modificano solo i genitori, a
+    mano.
+  - `~/.config/deckwatch/limiti.toml`: limiti feriali/festivi, app con nome e
+    `match`, siti della scuola. Lo scrive il bot; si può modificare anche a mano.
+  - `~/.local/state/deckwatch/`: `days/AAAA-MM-GG.json`, `overrides.json` (pausa,
+    extra, tipo di giorno, modalità insieme, ultimo settimanale), `meta.json`,
+    `heartbeat.json`, `update.json`, `outbox/`.
+- **Aggiornamento:** controllo giornaliero di `VERSION` su `main` (raw GitHub). Per
+  distribuire una modifica **bisogna aumentare `VERSION` e `__version__`**.
+- **Test:** `python3 -m unittest discover -s tests`. Usano FakePlatform e FakeOutbox.
+- **Esempi:** `policy.example.toml` deve essere identico a `render_policy()`; un test
+  lo verifica.
+
+## Decisioni prese (riferimento)
+
+1. **Conteggio**
+   - Solo l'app in primo piano, con la Deck non sospesa e con input negli ultimi
+     **2 minuti**.
+   - Campionamento ogni **10 secondi**; gamepad letto da evdev ogni secondo.
+2. **Limiti**
+   - Due tipi di giorno: **feriale** (lun–ven) e **festivo** (sab–dom). Nessuna
+     festività automatica.
+   - `/timer_considera_oggi_festivo` e `_feriale` valgono solo per oggi; nessuna
+     programmazione anticipata.
+   - C'è un totale della giornata e, facoltativi, limiti per singola app.
+   - **Concordato** (soft): un solo avviso, notifica critica **senza suono**: "Il tempo
+     concordato per X è terminato. Chiudi appena possibile."
+   - **Massimo** (hard): predefinito concordato **+5 minuti**. Popup più suono di
+     allarme.
+     - in monitor: "…L'applicazione continua a funzionare, ma in questo momento si
+       sarebbe chiusa automaticamente";
+     - in enforce: chiusura immediata, senza tempo di grazia. Se riapre l'app: avviso
+       e chiusura dopo 20 secondi.
+   - Countdown predisposto (`countdown_soft` e `countdown_hard`), oggi vuoto.
+   - Le modifiche ai limiti valgono subito.
+3. **Modalità**
+   - `monitor` è quella attuale: niente chiusure per i limiti, solo simulazione nel
+     report.
+   - `enforce` va attivata in futuro.
+   - `/timer_concedi_extra` funziona anche in monitor.
+   - `/timer_spegni_deck` in monitor mostra solo un avviso simulato.
+4. **Pausa** (`/timer_pausa [min]`)
+   - Funziona anche in monitor e mette in pausa lo **svago**: Firefox con solo siti
+     della scuola resta utilizzabile.
+   - 60 secondi per salvare; l'inizio della pausa è salvato e sopravvive ai riavvii.
+   - Il blocco totale è rimandato al punto 8.
+5. **Whitelist scuola**
+   - Il tempo non conta come svago solo se Firefox è in primo piano e **tutte** le
+     schede di tutte le finestre sono in whitelist.
+   - Le schede si leggono da `sessionstore-backups/recovery.jsonlz4`, con un
+     decompressore LZ4 scritto a mano. Gli indirizzi non vengono salvati.
+   - Le finestre di Firefox sullo schermo non conosciute dalla sessione (per esempio
+     le anonime) fanno contare il tempo come svago. Nel dubbio si conta.
+   - Le pagine interne di Firefox (`about:`) sono consentite.
+   - **Lista iniziale:** `nuvola.madisoft.it`, `*.wikipedia.org`,
+     `classroom.google.com`, `docs.google.com`, `drive.google.com`,
+     `meet.google.com`, `accounts.google.com`.
+   - Si gestisce da Telegram. Nel report c'è solo il totale "📚 Scuola".
+6. **Modalità insieme**
+   - `/insieme_inizio [min]`: il tempo va in "Insieme" e non conta.
+   - Promemoria a 90 minuti (sulla Deck e su Telegram), poi ogni 30 solo su Telegram.
+   - Si chiude con `/insieme_fine` o a mezzanotte. Sospende la pausa.
+7. **App nuove**
+   - Avviso immediato su Telegram dopo 5 minuti di uso, con i comandi pronti per
+     nome e limite.
+   - `/configura_nome_app`; limiti da Telegram con ricerca per nome tra i giochi
+     Steam installati.
+8. **Report**
+   - **Giornaliero:** a fine giornata, cioè alla prima accensione del giorno dopo o a
+     mezzanotte.
+   - **Settimanale:** sabato→venerdì, inviato dal sabato.
+   - Riepilogo compatto in alto (effettivo / concordato, ✅🟡❌), poi il dettaglio.
+     Solo nel report dei genitori ci sono gli eventi.
+9. **Anti-manomissione**
+   - Avviso subito per:
+     - servizio fermo per più di 3 minuti con la Deck accesa (battito ogni minuto);
+     - partenza tardiva o fermata prima dello spegnimento (dal registro di sistema);
+     - orologio sfasato di più di 5 minuti (dall'intestazione Date di Telegram).
+   - Nel report: modifiche fatte a mano ai file, tempo offline durante l'uso.
+10. **Aggiornamenti**
+    - Automatici: aspettano che lui non stia giocando. Da Telegram:
+      `/configura_aggiorna`.
+    - Se la nuova versione va in crash 3 volte nei primi 10 minuti, il launcher torna
+      alla precedente.
+11. **Comandi Telegram**
+    - Prefissi: `report_`, `info_`, `timer_`, `insieme_`, `limite_`, `configura_`.
+      Elenco completo in `COMMANDS` dentro `deckwatch.py`.
+    - Il menu è registrato da solo, solo nelle chat dei genitori.
+    - Ogni modifica viene notificata all'altro genitore.
+12. **Email:** solo via Brevo, con una chiave SMTP di solo invio. Niente password per
+    le app di Google.
+
+## Stato (aggiornato al 21/11/2026, versione 0.3.2)
+
+**Verificato sulla Deck reale**
+- Installazione e aggiornamento automatico.
+- Telegram ed email Brevo (`deckwatch test`).
+- **Notifiche con un gioco a tutto schermo:**
+  - la notifica normale non si vede;
+  - la notifica critica si vede;
+  - il popup ruba il controllo dello schermo e riduce il gioco;
+  - il suono si sente.
+
+  Da qui la scelta: notifica critica al tempo concordato, popup più suono al massimo.
+- **Whitelist Firefox** (Flatpak, profilo in
+  `~/.var/app/org.mozilla.firefox/.mozilla/firefox/`): `scuola=sì` con solo
+  Wikipedia, `scuola=no` con YouTube. Subito dopo l'apertura di Firefox
+  `recovery.jsonlz4` non esiste per un po' e il tempo conta come svago: è accettato.
+
+**Non ancora verificato**
+- Inattività con il gamepad (`deckwatch fg --watch` giocando solo con i controlli).
+  Lui lo usa poco.
+- Menu Telegram e `/info_limiti` dopo la migrazione dei limiti da v0.2: il vecchio
+  `hard` è diventato il concordato, e il massimo è concordato + 5.
+- Primo report giornaliero e settimanale nel nuovo formato.
+- Whitelist in Modalità Gioco: probabilmente non funziona (manca `_NET_CLIENT_LIST`),
+  quindi lì conta come svago.
+
+## Da discutere / fare
+
+- **Punto 8:** blocco totale e spegnimento quando si passerà a `enforce` (comportamento
+  di `on_total_exceeded`, `/timer_spegni_deck` reale).
+- **Prova del gamepad.**
+- **Più avanti, se serve:**
+  - protezione vera (servizio di sistema, password sudo tenuta dai genitori);
+  - plugin Decky Loader per le notifiche in Modalità Gioco.
+
+## Comandi utili sulla Deck
+
+```
+deckwatch update | check | status | fg --watch | games | test | test-notifiche | debug-firefox
+systemctl --user restart deckwatch ; journalctl --user -u deckwatch -f
+```
+Sul layout italiano la tilde si fa con AltGr+ì; in alternativa si usa `$HOME`.
