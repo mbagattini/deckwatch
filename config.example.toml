@@ -23,12 +23,13 @@ parents = []
 kid = []
 
 [email]
-# Usata per il report al figlio. Consigliato un account Gmail creato apposta,
-# con verifica in due passaggi e una "password per le app" (16 lettere).
-smtp_host = "smtp.gmail.com"
-smtp_port = 465
-username = ""
-password = ""
-sender = ""          # facoltativo, es. "DeckWatch <deckwatch.famiglia@gmail.com>"
+# Invio tramite Brevo (brevo.com, piano gratuito). Dati in Brevo:
+#   Impostazioni → SMTP & API → scheda SMTP
+# La chiave SMTP permette solo di inviare: non dà accesso a nessuna casella.
+smtp_host = "smtp-relay.brevo.com"
+smtp_port = 587
+username = ""        # "Login" SMTP mostrato da Brevo (es. 1a2b3c001@smtp-brevo.com)
+password = ""        # chiave SMTP (non la chiave API)
+sender = ""          # mittente VERIFICATO in Brevo, es. "DeckWatch <tuo.indirizzo@gmail.com>"
 kid = []             # es. ["figlio@gmail.com"]
 parents = []         # facoltativo: usato solo se Telegram non è configurato

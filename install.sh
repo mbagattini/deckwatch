@@ -95,12 +95,16 @@ if [[ ! -f $CFG_DIR/config.toml ]]; then
   FIRST_CONFIG=1
   say "Configurazione iniziale (premi Invio per saltare una voce, potrai cambiarla dopo)"
   TG_TOKEN="$(ask 'Token del bot Telegram (da @BotFather)')"
-  EM_USER="$(ask 'Gmail mittente per il report al figlio (es. deckwatch.famiglia@gmail.com)')"
-  EM_PASS=""
-  [[ -n $EM_USER ]] && EM_PASS="$(ask 'Password per le app di quel Gmail (16 lettere)')"
-  EM_KID="$(ask 'Email di tuo figlio (per il suo report)')"
+  say "Email via Brevo (Impostazioni → SMTP & API → SMTP). Invio per saltare."
+  EM_USER="$(ask 'Login SMTP di Brevo (es. 1a2b3c001@smtp-brevo.com)')"
+  EM_PASS="" EM_SENDER="" EM_KID=""
+  if [[ -n $EM_USER ]]; then
+    EM_PASS="$(ask 'Chiave SMTP di Brevo (non la chiave API)')"
+    EM_SENDER="$(ask 'Indirizzo mittente verificato in Brevo')"
+    EM_KID="$(ask 'Email di tuo figlio (per il suo report)')"
+  fi
   REPORT_TIME="$(ask 'Ora del report giornaliero' '21:30')"
-  TG_TOKEN="$TG_TOKEN" EM_USER="$EM_USER" EM_PASS="$EM_PASS" EM_KID="$EM_KID" \
+  TG_TOKEN="$TG_TOKEN" EM_USER="$EM_USER" EM_PASS="$EM_PASS" EM_KID="$EM_KID" EM_SENDER="$EM_SENDER" \
   REPORT_TIME="$REPORT_TIME" REPO_RAW="$REPO_RAW" \
   python3 - "$SRC_DIR/config.example.toml" "$CFG_DIR/config.toml" <<'EOF'
 import json, os, re, sys
@@ -116,6 +120,8 @@ t = re.sub(r'^update_url = .*$', 'update_url = ' + q(e["REPO_RAW"]), t, count=1,
 t = setkey(t, "telegram", "token", q(e["TG_TOKEN"]))
 t = setkey(t, "email", "username", q(e["EM_USER"]))
 t = setkey(t, "email", "password", q(e["EM_PASS"]))
+if e["EM_SENDER"]:
+    t = setkey(t, "email", "sender", q("DeckWatch <%s>" % e["EM_SENDER"]))
 if e["EM_KID"]:
     t = setkey(t, "email", "kid", q([e["EM_KID"]]))
 fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

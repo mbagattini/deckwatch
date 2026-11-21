@@ -23,10 +23,13 @@ riaccensione. Un `/spegni` arrivato con più di 10 minuti di ritardo viene ignor
 
 1. **Bot Telegram:** su Telegram apri `@BotFather` e scrivi `/newbot`. Scegli un
    nome, per esempio "DeckWatch Famiglia", e copia il **token** che ti dà.
-2. **Gmail per il report al figlio** (facoltativo): crea un account Gmail dedicato.
-   Attiva la verifica in due passaggi, poi vai su *Account Google → Sicurezza →
-   Password per le app* e genera una password di 16 lettere. Non usare il tuo Gmail
-   personale: la password resta salvata sulla Deck.
+2. **Brevo per il report email al figlio** (facoltativo): crea un account gratuito su
+   brevo.com. In *Mittenti* aggiungi e conferma l'indirizzo da usare come mittente
+   (anche il tuo Gmail: Brevo non vi accede). In *Impostazioni → SMTP & API → SMTP*
+   crea una **chiave SMTP** e annota il **Login** mostrato lì. La chiave permette solo
+   di inviare email: se finisse in mani sbagliate non dà accesso a nessuna casella, e
+   si revoca con un clic. Le prime email potrebbero finire nello spam: segnale come
+   "non spam".
 
 ## Installazione sulla Deck
 
@@ -35,7 +38,7 @@ riaccensione. Un `/spegni` arrivato con più di 10 minuti di ritardo viene ignor
    ```bash
    curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.sh | bash
    ```
-3. Rispondi alle domande: token del bot, Gmail, email del figlio, ora del report.
+3. Rispondi alle domande: token del bot, dati Brevo, email del figlio, ora del report.
 4. Quando richiesto, **entrambi i genitori** aprono il bot su Telegram e premono
    **Avvia**. L'installer registra le vostre chat.
 5. Prova l'invio dei messaggi: `deckwatch test`.

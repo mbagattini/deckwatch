@@ -212,8 +212,8 @@ class Config:
     tg_token: str = ""
     tg_parents: list = field(default_factory=list)
     tg_kid: list = field(default_factory=list)
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 465
+    smtp_host: str = "smtp-relay.brevo.com"
+    smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_sender: str = ""
@@ -226,7 +226,7 @@ class Config:
 
     @property
     def email_enabled(self) -> bool:
-        return bool(self.smtp_host and self.smtp_user and self.smtp_password)
+        return bool(self.smtp_host and self.smtp_user and self.smtp_password and self.smtp_sender)
 
     @classmethod
     def load(cls, path: Path) -> "Config":
@@ -251,7 +251,7 @@ class Config:
         c.smtp_port = int(em.get("smtp_port", c.smtp_port))
         c.smtp_user = str(em.get("username", ""))
         c.smtp_password = str(em.get("password", ""))
-        c.smtp_sender = str(em.get("sender", "")) or c.smtp_user
+        c.smtp_sender = str(em.get("sender", ""))
         c.email_kid = [str(x) for x in em.get("kid", [])]
         c.email_parents = [str(x) for x in em.get("parents", [])]
         return c
@@ -655,7 +655,7 @@ def telegram_call(token: str, method: str, data: dict | None = None, timeout: fl
 
 def send_email(cfg: Config, to: str, subject: str, body: str) -> None:
     msg = EmailMessage()
-    msg["From"] = cfg.smtp_sender or cfg.smtp_user
+    msg["From"] = cfg.smtp_sender
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(body)
