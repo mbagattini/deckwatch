@@ -2,7 +2,7 @@
 #  DeckWatch — IMPOSTAZIONI (policy.toml)
 #  Percorso sulla Deck: ~/.config/deckwatch/policy.toml
 #  Lo modificano solo i genitori, a mano; viene ricaricato da solo.
-#  I LIMITI (tempi per giorno e per app, siti della scuola) NON stanno qui:
+#  I LIMITI (tempi per giorno e per app, siti e app di crescita) NON stanno qui:
 #  si gestiscono da Telegram e vengono salvati in limiti.toml.
 #  Tempi in minuti, salvo dove indicato "secondi".
 # =====================================================================

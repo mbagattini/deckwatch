@@ -18,16 +18,21 @@ Ecco come funziona, senza segreti.
 
 ## Cosa non conta
 
-- **La scuola su Firefox.** Se usi Firefox e **tutte** le schede aperte sono su siti
-  della scuola (Nuvola, Wikipedia, Classroom, Docs, Drive, Meet), quel tempo non
-  conta come svago.
+- **La crescita: scuola, studio, imparare cose nuove.**
+  - **Siti:** se usi Firefox e **tutte** le schede aperte sono su siti della lista
+    (Nuvola, Wikipedia, Classroom, Docs, Drive, Meet, e quelli che aggiungono i tuoi
+    genitori), quel tempo non conta come svago.
+  - **App:** vale anche per alcune app, per esempio Scratch o un programma per
+    imparare a programmare.
+
+  Nel riepilogo lo trovi come "🌱 Crescita", con il tempo per ogni sito e app.
 
   Attenzione: basta **una sola** scheda di un altro sito aperta, anche in secondo
   piano (YouTube, un gioco online…), perché tutto il tempo conti come svago. Anche
   le finestre anonime e gli altri browser contano come svago.
 
   **Consiglio:** quando fai i compiti, usa Firefox e chiudi le altre schede. Se ti
-  serve un sito per la scuola che non è nella lista, chiedi ai tuoi genitori di
+  serve un sito o un'app che non è nella lista, chiedi ai tuoi genitori di
   aggiungerlo.
 
 - **Quando giochi con i tuoi genitori.** Possono attivare la **modalità insieme**:
@@ -40,7 +45,7 @@ Ecco come funziona, senza segreti.
 |---|---|
 | **⏰ Tempo concordato terminato** | Hai finito il tempo che avete deciso, per quel gioco o per oggi. È una notifica in alto, senza suono. **Chiudi appena possibile**: salva, finisci il livello e smetti. |
 | **⛔ Tempo massimo raggiunto** | Sono passati altri **5 minuti** dopo il tempo concordato. Compare una finestra con un suono. Per ora è **una prova**: il gioco continua a funzionare, ma il messaggio ti dice che "in questo momento si sarebbe chiuso". Se un giorno le regole diventano attive, a questo punto il gioco si chiude davvero. |
-| **⏸ Deck in pausa** | I tuoi genitori hanno messo in pausa la Deck. Hai **60 secondi** per salvare, poi i giochi si chiudono. Firefox per la scuola resta disponibile. |
+| **⏸ Deck in pausa** | I tuoi genitori hanno messo in pausa la Deck. Hai **60 secondi** per salvare, poi i giochi si chiudono. App e siti di crescita restano disponibili. |
 | **🎁 Tempo extra** | I tuoi genitori ti hanno dato qualche minuto in più, solo per oggi. |
 | **📅 Giorno festivo / feriale** | Oggi valgono i tempi di un altro tipo di giorno, per esempio in vacanza. |
 
@@ -66,7 +71,7 @@ Nel riepilogo:
 
 - **Non legge** cosa scrivi e non fa foto dello schermo.
 - **Non salva** i siti che visiti: guarda solo se le schede di Firefox sono tutte
-  della scuola.
+  della lista di crescita, e conta il tempo solo per quei siti.
 - **Non va di nascosto.** Funziona come avete deciso insieme, e i tuoi genitori
   ricevono le stesse informazioni che sono scritte qui.
 

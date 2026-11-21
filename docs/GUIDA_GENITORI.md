@@ -19,12 +19,17 @@ siti visitati.
 - Quando la Deck è spenta o in sospensione non conta niente.
 
 **Cosa non conta come svago:**
-- **Scuola.** Il tempo su Firefox non conta, purché **tutte** le schede aperte siano
-  su siti della scuola, per esempio Nuvola, Wikipedia, Classroom, Docs, Drive e Meet.
-  Basta una scheda di un altro sito aperta, anche in secondo piano (YouTube, un
-  gioco online…), perché tutto il tempo conti come svago. Lo stesso vale per una
-  finestra anonima, o per i compiti fatti con un altro browser. Nel report questo
-  tempo compare come "📚 Scuola" e non viene sommato allo svago.
+- **Crescita.** Scuola, studio, programmazione: comprende siti e app scelti da voi.
+  - **Siti:** il tempo su Firefox non conta, purché **tutte** le schede aperte siano su
+    siti della lista. All'inizio la lista contiene Nuvola, Wikipedia, Classroom, Docs,
+    Drive e Meet; potete aggiungere siti che gli concedete ma di cui volete sapere
+    l'uso, per esempio chess.com o claude.ai. Basta una scheda di un altro sito
+    aperta, anche in secondo piano (YouTube, un gioco online…), perché tutto il tempo
+    conti come svago. Lo stesso vale per una finestra anonima o per un altro browser.
+  - **App:** per esempio Scratch o un programma per imparare a programmare.
+  - **Nel report** questo tempo compare come "🌱 Crescita" e non viene sommato allo
+    svago. Avete il dettaglio sito per sito e app per app. La navigazione normale
+    resta invece un unico totale "Browser", senza l'elenco dei siti.
 - **Modalità insieme.** Quando giocate con lui, attivatela da Telegram e il tempo non
   conta.
 
@@ -59,7 +64,7 @@ DeckWatch ha due modalità:
   un modo per abituarsi insieme alle regole prima di renderle effettive.
 - **Regole attive (enforce).** Al tempo massimo il gioco si chiude. Se lo riapre,
   compare un avviso e dopo **20 secondi** si richiude. A tempo totale finito restano
-  usabili solo Firefox per la scuola e le app di sistema.
+  usabili solo le app e i siti di crescita e le app di sistema.
 
 La **pausa** (vedi sotto) funziona in entrambe le modalità.
 
@@ -95,7 +100,7 @@ esempio. `/info_comandi` mostra tutto.
 
 **Intervenire oggi**
 - `/timer_pausa`: mette in pausa lo svago. Lui ha **60 secondi** per salvare, poi i
-  giochi si chiudono. Firefox per la scuola resta utilizzabile. `/timer_pausa 60`
+  giochi si chiudono. App e siti di crescita restano utilizzabili. `/timer_pausa 60`
   vale per 60 minuti; `/timer_riprendi` toglie la pausa.
 - `/timer_concedi_extra 30`: mezz'ora in più solo per oggi. Funziona anche per un
   singolo gioco: `/timer_concedi_extra geometry dash 15`.
@@ -119,8 +124,12 @@ esempio. `/info_comandi` mostra tutto.
 - `/limite_imposta totale feriale 120`: il tempo totale nei giorni feriali.
 - `/limite_rimuovi minecraft`: toglie il limite di un gioco, che continua a contare
   nel totale.
-- `/configura_aggiungi_sito_scuola sito.it` e `/configura_rimuovi_sito_scuola`:
-  gestiscono i siti della scuola. Si può incollare anche un link intero.
+- `/configura_aggiungi_sito_crescita chess.com` e `/configura_rimuovi_sito_crescita`:
+  gestiscono i siti di crescita. Si può incollare anche un link intero.
+- `/configura_aggiungi_app_crescita scratch` e `/configura_rimuovi_app_crescita`:
+  gestiscono le app di crescita. L'app deve essere stata aperta almeno una volta
+  sulla Deck.
+- `/info_crescita`: mostra siti e app di crescita, con il tempo di oggi.
 - `/configura_nome_app`: dà un nome leggibile a un'app. Il bot ve lo propone da solo
   quando vede un'app nuova.
 
@@ -161,7 +170,8 @@ riceve un messaggio.
 
 - **Non è a prova di esperto.** Chi conosce Linux può fermarlo; è pensato su un
   accordo di fiducia. Se però qualcuno lo ferma, ve ne accorgete dagli avvisi.
-- **Non salva i siti visitati.** Guarda solo se le schede di Firefox sono tutte della
-  scuola, e poi dimentica gli indirizzi.
+- **Non salva i siti visitati.** Guarda solo se le schede di Firefox sono tutte di
+  crescita, e poi dimentica gli indirizzi. Registra il tempo solo per i siti della
+  lista di crescita.
 - **Non vede le altre app dall'interno.** Non sa cosa succede dentro un gioco o
   un'app, né cosa viene scritto.

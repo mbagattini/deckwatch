@@ -53,7 +53,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 APP = "deckwatch"
 TICK = 10.0
@@ -280,7 +280,7 @@ class Config:
 
 # --------------------------------------------------------------------------- #
 # Regole: policy.toml (impostazioni tecniche, scritto solo dai genitori a mano)
-#         limiti.toml (limiti, nomi delle app, whitelist scuola; scritto dal bot)
+#         limiti.toml (limiti, nomi delle app, crescita: siti e app; scritto dal bot)
 # --------------------------------------------------------------------------- #
 class PolicyError(ValueError):
     pass
@@ -288,7 +288,7 @@ class PolicyError(ValueError):
 
 DAY_TYPES = ("feriale", "festivo")
 
-DEFAULT_SCHOOL_SITES = [
+DEFAULT_GROWTH_SITES = [
     "nuvola.madisoft.it", "*.wikipedia.org", "classroom.google.com", "docs.google.com",
     "drive.google.com", "meet.google.com", "accounts.google.com",
 ]
@@ -465,12 +465,12 @@ def site_allowed(host: str, sites: list) -> bool:
 
 
 class Limits:
-    """Limiti per tipo di giorno, regole per le app, whitelist scuola (limiti.toml)."""
+    """Limiti per tipo di giorno, regole per le app, siti e app di crescita (limiti.toml)."""
 
     def __init__(self, data: dict | None = None, margin: float = 5.0):
         data = data or {}
         self.margin = margin
-        unknown = set(data) - {"totale", "app", "scuola"}
+        unknown = set(data) - {"totale", "app", "crescita", "scuola"}
         if unknown:
             raise PolicyError(f"limiti.toml: sezioni sconosciute: {', '.join(sorted(unknown))}")
         tot = data.get("totale", {}) or {}
@@ -496,13 +496,23 @@ class Limits:
             self.apps[aid] = AppRule(
                 id=aid, name=str(a.get("nome", aid)), patterns=_patterns(a["match"], f"{where}.match"),
                 limits={d: _limit_entry(a.get(d), f"{where}.{d}", margin) for d in DAY_TYPES})
-        sc = data.get("scuola", {"siti": DEFAULT_SCHOOL_SITES}) or {}
+        # [crescita] (in passato [scuola]): siti e app che non contano come svago
+        if "crescita" in data:
+            sc = data.get("crescita") or {}
+        elif "scuola" in data:
+            sc = data.get("scuola") or {}
+        else:
+            sc = {"siti": DEFAULT_GROWTH_SITES}
         if not isinstance(sc, dict):
-            raise PolicyError("[scuola] non valido")
+            raise PolicyError("[crescita] non valido")
+        for k in sc:
+            if k not in ("siti", "app"):
+                raise PolicyError(f"crescita: chiave sconosciuta '{k}' (usa siti / app)")
         siti = sc.get("siti", [])
         if not isinstance(siti, list) or not all(isinstance(x, str) for x in siti):
-            raise PolicyError("scuola.siti: attesa una lista di siti")
-        self.school_sites = [_norm_site(x) for x in siti]
+            raise PolicyError("crescita.siti: attesa una lista di siti")
+        self.growth_sites = [_norm_site(x) for x in siti]
+        self.growth_apps = _patterns(sc.get("app", []), "crescita.app")
 
     # -- interrogazioni ---------------------------------------------------- #
     def app_for(self, key: str, name: str) -> str | None:
@@ -522,6 +532,9 @@ class Limits:
                 return aid
         cands = [aid for aid, r in self.apps.items() if t in r.name.lower()]
         return cands[0] if len(cands) == 1 else None
+
+    def is_growth_app(self, key: str, name: str) -> bool:
+        return _match(self.growth_apps, key, name)
 
     def day_limits(self, day_type: str, extras: dict | None = None):
         total = self.total.get(day_type, Limit())
@@ -571,10 +584,13 @@ class Limits:
                 l = r.limits.get(d, Limit())
                 if not l.empty:
                     out.append(f"{d} = {lim(l)}")
-        out += ["", "[scuola]",
-                "# Siti che NON contano come svago, solo se in Firefox TUTTE le schede",
-                "# aperte sono di questa lista. \"*.sito.it\" include i sottodomini.",
-                "siti = [" + ", ".join(q(s) for s in self.school_sites) + "]", ""]
+        out += ["", "[crescita]",
+                "# Tempo che NON conta come svago (nel report: dettaglio per sito e app).",
+                "# siti: valgono solo se in Firefox TUTTE le schede aperte sono di questa",
+                "#       lista. \"*.sito.it\" include i sottodomini.",
+                "# app:  identificativi delle app (es. \"class:scratch-desktop\").",
+                "siti = [" + ", ".join(q(s) for s in self.growth_sites) + "]",
+                "app = [" + ", ".join(q(s) for s in self.growth_apps) + "]", ""]
         return "\n".join(out)
 
     def summary_lines(self) -> list:
@@ -620,13 +636,14 @@ def limits_diff(old: Limits, new: Limits) -> list:
                 out.append(f"{name} {d}: {lt(lo)} → {lt(ln)}")
         if o and n and (o.name != n.name or o.patterns != n.patterns):
             out.append(f"{o.name}: nome/identificativo cambiato")
-    if old.school_sites != new.school_sites:
-        add = sorted(set(new.school_sites) - set(old.school_sites))
-        rem = sorted(set(old.school_sites) - set(new.school_sites))
-        if add:
-            out.append("siti scuola aggiunti: " + ", ".join(add))
-        if rem:
-            out.append("siti scuola rimossi: " + ", ".join(rem))
+    for attr, label in (("growth_sites", "siti"), ("growth_apps", "app")):
+        a, b = getattr(old, attr), getattr(new, attr)
+        if a != b:
+            add, rem = sorted(set(b) - set(a)), sorted(set(a) - set(b))
+            if add:
+                out.append(f"crescita, {label} aggiunti: " + ", ".join(add))
+            if rem:
+                out.append(f"crescita, {label} rimossi: " + ", ".join(rem))
     return out
 
 
@@ -663,7 +680,8 @@ def migrate_legacy_limits(data: dict, margin: float) -> Limits:
 # --------------------------------------------------------------------------- #
 def new_day(date: dt.date) -> dict:
     return {"version": 2, "date": date.isoformat(), "day_type": default_day_type(date),
-            "total": 0.0, "apps": {}, "school": 0.0, "together": 0.0, "offline": 0.0,
+            "total": 0.0, "apps": {}, "growth": 0.0, "growth_detail": {}, "together": 0.0,
+            "offline": 0.0,
             "events": [], "flags": {}, "enforced": [], "reported": False}
 
 
@@ -684,6 +702,10 @@ class DayStore:
             log.exception("Stato %s illeggibile: riparto da zero", p)
             return None
         base = new_day(dt.date.fromisoformat(date_iso))
+        if "school" in st and "growth" not in st:   # formato v0.3
+            st["growth"] = st.pop("school")
+            if st["growth"]:
+                st["growth_detail"] = {"Scuola": st["growth"]}
         base.update(st)
         return base
 
@@ -904,6 +926,12 @@ def _detail_rows(groups: dict, others: list, limits: Limits, show_keys: bool) ->
     return rows or ["(nessuna attività registrata)"]
 
 
+def _growth_rows(detail: dict) -> list:
+    rows = [f"• {name}: {fmt_min(secs / 60)}" for name, secs in
+            sorted(detail.items(), key=lambda kv: -kv[1]) if secs >= 60]
+    return ["", "DETTAGLIO CRESCITA"] + rows if rows else []
+
+
 def _extra_text(extras: dict | None, limits: Limits) -> str | None:
     if not extras or not (extras.get("total") or extras.get("apps")):
         return None
@@ -949,13 +977,14 @@ def build_report(state: dict, limits: Limits, audience: str, extras: dict | None
         lines.append(f"{_icon(u, lim)} {r.name}: {_vs(u, lim)}")
         if _icon(u, lim) != "✅":
             overs.append(r.name)
-    if state.get("school", 0) >= 60:
-        lines.append(f"📚 Scuola: {fmt_min(state['school'] / 60)} (non conteggiato)")
+    if state.get("growth", 0) >= 60:
+        lines.append(f"🌱 Crescita: {fmt_min(state['growth'] / 60)} (non conteggiato)")
     if state.get("together", 0) >= 60:
         lines.append(f"👨‍👦 Insieme: {fmt_min(state['together'] / 60)} (non conteggiato)")
 
-    lines += ["", "DETTAGLIO"]
+    lines += ["", "DETTAGLIO SVAGO"]
     lines += _detail_rows(groups, others, limits, show_keys=(audience != "kid"))
+    lines += _growth_rows(state.get("growth_detail") or {})
     et = _extra_text(extras, limits)
     if et:
         lines.append(et)
@@ -996,7 +1025,8 @@ def build_weekly(states: dict, limits: Limits, extras_map: dict, audience: str,
     dates = sorted(states)
     d0, d6 = dt.date.fromisoformat(dates[0]), dt.date.fromisoformat(dates[-1])
     period = f"{d0:%d/%m} – {d6:%d/%m}"
-    week_total = school = together = 0.0
+    week_total = growth = together = 0.0
+    growth_detail: dict[str, float] = {}
     total_overs = 0
     app_week: dict[str, float] = {}
     app_over_days: dict[str, int] = {}
@@ -1011,7 +1041,9 @@ def build_weekly(states: dict, limits: Limits, extras_map: dict, audience: str,
         total_lim, app_lims = limits.day_limits(dtype, extras_map.get(iso))
         used = st["total"] / 60
         week_total += used
-        school += st.get("school", 0.0)
+        growth += st.get("growth", 0.0)
+        for k, v in (st.get("growth_detail") or {}).items():
+            growth_detail[k] = growth_detail.get(k, 0.0) + v
         together += st.get("together", 0.0)
         any_total_limit |= not total_lim.empty
         groups, others = app_breakdown(st, limits)
@@ -1052,14 +1084,15 @@ def build_weekly(states: dict, limits: Limits, extras_map: dict, audience: str,
             n = app_over_days.get(aid, 0)
             lines.append(f"• {limits.apps[aid].name}: {fmt_min(app_week.get(aid, 0) / 60)} — "
                          f"oltre il concordato {n} {'giorno' if n == 1 else 'giorni'}")
-    if school >= 60:
-        lines.append(f"📚 Scuola: {fmt_min(school / 60)} (non conteggiato)")
+    if growth >= 60:
+        lines.append(f"🌱 Crescita: {fmt_min(growth / 60)} (non conteggiato)")
     if together >= 60:
         lines.append(f"👨‍👦 Insieme: {fmt_min(together / 60)} (non conteggiato)")
     lines += ["", "GIORNO PER GIORNO"] + day_lines
-    lines += ["", "DETTAGLIO APP (settimana)"]
+    lines += ["", "DETTAGLIO SVAGO (settimana)"]
     lines += _detail_rows(app_week, sorted(((v[0], k, v[1]) for k, v in other_week.items()),
                                            reverse=True), limits, show_keys=(audience != "kid"))
+    lines += _growth_rows(growth_detail)
     n_overs = total_overs + sum(app_over_days.values())
     if audience == "kid":
         lines.append("")
@@ -1094,7 +1127,7 @@ COMMANDS = [
     ("info_stato", "Cosa sta usando adesso e tempo di oggi", None),
     ("info_limiti", "Limiti feriali e festivi in vigore", None),
     ("info_app", "App viste di recente e loro identificativo", None),
-    ("info_scuola", "Siti della scuola (whitelist)", None),
+    ("info_crescita", "Siti e app di crescita (non contano come svago)", None),
     ("info_versione", "Versione installata e aggiornamenti", None),
     ("info_comandi", "Elenco dei comandi con esempi", None),
     ("timer_pausa", "Mette in pausa lo svago (anche: /timer_pausa 60)", "/timer_pausa 60"),
@@ -1108,8 +1141,10 @@ COMMANDS = [
     ("limite_imposta", "Imposta un limite (es. geometry dash 60)", "/limite_imposta geometry dash 60  ·  /limite_imposta geometry dash festivo 60 75  ·  /limite_imposta totale feriale 120"),
     ("limite_rimuovi", "Toglie il limite di un'app", "/limite_rimuovi minecraft  ·  /limite_rimuovi totale festivo"),
     ("configura_nome_app", "Dà un nome leggibile a un'app", "/configura_nome_app class:game.exe Fortnite"),
-    ("configura_aggiungi_sito_scuola", "Aggiunge un sito della scuola", "/configura_aggiungi_sito_scuola it.wikipedia.org"),
-    ("configura_rimuovi_sito_scuola", "Toglie un sito della scuola", "/configura_rimuovi_sito_scuola sito.it"),
+    ("configura_aggiungi_sito_crescita", "Aggiunge un sito di crescita", "/configura_aggiungi_sito_crescita chess.com"),
+    ("configura_rimuovi_sito_crescita", "Toglie un sito di crescita", "/configura_rimuovi_sito_crescita chess.com"),
+    ("configura_aggiungi_app_crescita", "Aggiunge un'app di crescita", "/configura_aggiungi_app_crescita scratch  ·  /configura_aggiungi_app_crescita class:code"),
+    ("configura_rimuovi_app_crescita", "Toglie un'app di crescita", "/configura_rimuovi_app_crescita class:code"),
     ("configura_aggiorna", "Controlla e installa subito gli aggiornamenti", None),
 ]
 
@@ -1135,7 +1170,7 @@ class Engine:
         self.seen: dict = dict(meta.get("seen_apps") or {})
         self.last_fg: Foreground | None = None
         self.last_active = False
-        self.last_school = False
+        self.last_growth: str | None = None
         self.online = True
         self.on_update_request = None
         self._now: dt.datetime | None = None
@@ -1238,6 +1273,12 @@ class Engine:
             cache[key] = lim.app_for(key, name)
         return cache[key]
 
+    def app_label(self, key: str, name: str) -> str:
+        aid = self.app_id_for(key, name)
+        if aid:
+            return self.limits.apps[aid].name
+        return (self.seen.get(key) or {}).get("name") or name or key
+
     def usage_by_app(self) -> dict:
         out: dict[str, float] = {}
         for key, rec in self.state["apps"].items():
@@ -1296,21 +1337,25 @@ class Engine:
         fg = self.platform.foreground()
         idle = self.platform.idle_seconds()
         active = idle is None or idle < pol.idle_minutes * 60
-        school_ok = False
-        if fg and fg.key in FIREFOX_KEYS:
+        growth = None   # etichetta (sito o app) se il tempo è "crescita"
+        if fg and self.limits.is_growth_app(fg.key, fg.name):
+            growth = self.app_label(fg.key, fg.name)
+        elif fg and fg.key in FIREFOX_KEYS:
             try:
-                school_ok = bool(self.platform.firefox_school_ok(self.limits.school_sites))
+                growth = self.platform.firefox_growth(self.limits.growth_sites)
             except Exception:
                 log.exception("Lettura sessione Firefox")
-        self.last_fg, self.last_active, self.last_school = fg, active, school_ok
+        self.last_fg, self.last_active, self.last_growth = fg, active, growth
         together = self.together()
 
         if fg and active and delta > 0 and not pol.is_excluded(fg.key, fg.name):
             self._track_seen(fg, delta)
             if together:
                 st["together"] = st.get("together", 0.0) + delta
-            elif school_ok:
-                st["school"] = st.get("school", 0.0) + delta
+            elif growth:
+                st["growth"] = st.get("growth", 0.0) + delta
+                gd = st.setdefault("growth_detail", {})
+                gd[growth] = gd.get(growth, 0.0) + delta
             else:
                 rec = st["apps"].setdefault(fg.key, {"name": fg.name or fg.key, "seconds": 0.0})
                 if fg.name:
@@ -1332,7 +1377,7 @@ class Engine:
                           for aid, lim in app_lims.items()}
             locked = self.remote_locked(now)
             lock_on = self._update_lock(locked, ts)
-            targets = self._collect_targets(fg, school_ok, total_status, app_status, lock_on)
+            targets = self._collect_targets(fg, bool(growth), total_status, app_status, lock_on)
             if locked and targets and ts - self._last_lock_popup >= 60:
                 self._last_lock_popup = ts
                 try:
@@ -1418,7 +1463,7 @@ class Engine:
                 body = (f"Il tempo massimo per {name} è terminato: l'applicazione viene chiusa."
                         if name else
                         "Il tempo massimo per oggi è terminato: le applicazioni vengono chiuse. "
-                        "Restano disponibili Firefox per la scuola e le app di sistema.")
+                        "Restano disponibili le app e i siti di crescita e le app di sistema.")
             else:
                 body = (f"Il tempo concordato per {name} è terminato. L'applicazione continua a "
                         "funzionare, ma in questo momento si sarebbe chiusa automaticamente."
@@ -1437,8 +1482,8 @@ class Engine:
                 self.overrides.set("lock_since", ts)
                 self._say("⏸ Deck in pausa",
                           f"{pol.lock_message} Tra {int(pol.lock_grace_seconds)} secondi le "
-                          "applicazioni verranno chiuse: salva adesso. Firefox per la scuola "
-                          "resta disponibile.", level="strong", kind="lock")
+                          "applicazioni verranno chiuse: salva adesso. App e siti di crescita "
+                          "restano disponibili.", level="strong", kind="lock")
             return ts - since >= pol.lock_grace_seconds
         if since is not None:
             self.overrides.set("lock_since", None)
@@ -1447,15 +1492,15 @@ class Engine:
             self._say("▶️ Pausa terminata", "Puoi di nuovo usare la Deck.", kind="lock")
         return False
 
-    def _collect_targets(self, fg, school_ok, total_status, app_status, lock_on) -> dict:
+    def _collect_targets(self, fg, growth_ok, total_status, app_status, lock_on) -> dict:
         pol = self.policy
         targets: dict[str, dict] = {}
         total_block = lock_on or total_status == "blocked"
         total_lid = "lock" if lock_on else "total"
         total_reason = "la Deck è in pausa." if lock_on else "il tempo massimo di oggi è terminato."
 
-        def consider(key, name, fgobj, appid, school=False):
-            if key in targets or school:
+        def consider(key, name, fgobj, appid, growth=False):
+            if key in targets or growth:
                 return
             aid = self.app_id_for(key, name)
             if aid and app_status.get(aid) == "blocked":
@@ -1467,12 +1512,13 @@ class Engine:
                                     reason=total_reason)
 
         if fg:
-            consider(fg.key, fg.name, fg, fg.steam_appid, school=school_ok)
+            consider(fg.key, fg.name, fg, fg.steam_appid, growth=growth_ok)
         if lock_on or (pol.enforce and (total_status == "blocked" or
                                         any(s == "blocked" for s in app_status.values()))):
             for appid in self.platform.running_steam_games():
                 key = f"steam:{appid}"
-                consider(key, self.platform.steam_name(appid) or key, None, appid)
+                name = self.platform.steam_name(appid) or key
+                consider(key, name, None, appid, growth=self.limits.is_growth_app(key, name))
         return targets
 
     def _apply_targets(self, targets: dict, ts: float) -> None:
@@ -1580,6 +1626,35 @@ class Engine:
             if c != chat_id:
                 self.outbox.enqueue("telegram", str(c), "DeckWatch", text)
 
+    def _find_app_key(self, text: str) -> tuple[str | None, str | None]:
+        """Identificativo di un'app da nome o identificativo. Ritorna (chiave, errore)."""
+        t = text.strip().lower()
+        if re.match(r"^(steam|class):\S+$", t):
+            return t, None
+        aid = self.limits.find_app(t)
+        if aid and len(self.limits.apps[aid].patterns) == 1:
+            return self.limits.apps[aid].patterns[0], None
+        cands: dict[str, str] = {}
+        try:
+            for appid, nm in self.platform.steam_find(t):
+                cands[f"steam:{appid}"] = nm
+        except Exception:
+            log.exception("ricerca giochi Steam")
+        known = {k: (v.get("name") or "") for k, v in self.seen.items()}
+        known.update({k: rec.get("name") or k for k, rec in self.state["apps"].items()})
+        for key, nm in known.items():
+            if t in nm.lower() or t in key:
+                cands.setdefault(key, nm)
+        exact = {k: v for k, v in cands.items() if v.lower() == t}
+        cands = exact or cands
+        if not cands:
+            return None, (f"Non trovo \"{text}\". Apri l'app sulla Deck almeno una volta, poi "
+                          "cerca il suo identificativo con /info_app.")
+        if len(cands) > 1:
+            return None, ("Più app corrispondono, usa l'identificativo:\n" +
+                          "\n".join(f"• {v} ({k})" for k, v in list(cands.items())[:10]))
+        return next(iter(cands)), None
+
     def _resolve_app(self, text: str, create: bool) -> tuple[str | None, str | None]:
         """Trova (o crea) la regola per un'app. Ritorna (app_id, messaggio_errore)."""
         L = self.limits
@@ -1596,8 +1671,9 @@ class Engine:
                     cands[f"steam:{appid}"] = nm
             except Exception:
                 log.exception("ricerca giochi Steam")
-            for key, info in self.seen.items():
-                nm = (info.get("name") or "")
+            known = {k: (v.get("name") or "") for k, v in self.seen.items()}
+            known.update({k: rec.get("name") or k for k, rec in self.state["apps"].items()})
+            for key, nm in known.items():
                 if t == nm.lower() or (t in nm.lower() and key not in cands):
                     cands[key] = nm
             exact = {k: v for k, v in cands.items() if v.lower() == t}
@@ -1634,6 +1710,9 @@ class Engine:
         if not parts:
             return None
         cmd = parts[0].split("@")[0].lower().lstrip("/")
+        cmd = {"info_scuola": "info_crescita",
+               "configura_aggiungi_sito_scuola": "configura_aggiungi_sito_crescita",
+               "configura_rimuovi_sito_scuola": "configura_rimuovi_sito_crescita"}.get(cmd, cmd)
         args = parts[1:]
         age = now.timestamp() - msg_ts
         today = now.date().isoformat()
@@ -1650,11 +1729,8 @@ class Engine:
             return self.week_so_far(now.date())
         if cmd == "info_limiti":
             return self.limits_text(now.date())
-        if cmd == "info_scuola":
-            return ("📚 Siti della scuola (contano come scuola solo se in Firefox TUTTE le "
-                    "schede aperte sono di questa lista):\n" +
-                    "\n".join(f"• {s}" for s in L.school_sites) +
-                    f"\n\nOggi: {fmt_min(self.state.get('school', 0) / 60)}")
+        if cmd == "info_crescita":
+            return self.growth_text()
         if cmd == "info_app":
             return self.apps_text()
         if cmd == "info_versione":
@@ -1844,35 +1920,72 @@ class Engine:
             self._event("edit", f"{sender}: {key} si chiama \"{new_name}\"")
             self._broadcast_others(chat_id, f"✏️ {sender}: {key} ora si chiama \"{new_name}\".")
             return f"✏️ {key} ora si chiama \"{new_name}\"."
-        if cmd in ("configura_aggiungi_sito_scuola", "configura_rimuovi_sito_scuola"):
+        if cmd in ("configura_aggiungi_sito_crescita", "configura_rimuovi_sito_crescita"):
             if not args:
-                return self._usage(cmd) + "\n\nSiti attuali:\n" + "\n".join(
-                    f"• {s}" for s in L.school_sites)
+                return self._usage(cmd) + "\n\n" + self.growth_text()
             try:
                 site = _norm_site(args[0])
             except PolicyError as e:
                 return str(e)
             if cmd.startswith("configura_aggiungi"):
-                if site in L.school_sites:
+                if site in L.growth_sites:
                     return f"{site} è già nella lista."
-                L.school_sites.append(site)
-                desc = f"sito scuola aggiunto: {site}"
+                L.growth_sites.append(site)
+                desc = f"sito di crescita aggiunto: {site}"
             else:
-                if site not in L.school_sites:
-                    return f"{site} non è nella lista. Siti attuali:\n" + "\n".join(
-                        f"• {s}" for s in L.school_sites)
-                L.school_sites.remove(site)
-                desc = f"sito scuola rimosso: {site}"
+                if site not in L.growth_sites:
+                    return f"{site} non è nella lista.\n\n" + self.growth_text()
+                L.growth_sites.remove(site)
+                desc = f"sito di crescita rimosso: {site}"
             self.limits_changed()
             self._event("edit", f"{sender}: {desc}")
-            self._broadcast_others(chat_id, f"📚 {sender}: {desc}.")
-            return f"📚 Fatto: {desc}."
+            self._broadcast_others(chat_id, f"🌱 {sender}: {desc}.")
+            return f"🌱 Fatto: {desc}."
+        if cmd in ("configura_aggiungi_app_crescita", "configura_rimuovi_app_crescita"):
+            if not args:
+                return self._usage(cmd) + "\n\n" + self.growth_text()
+            text = " ".join(args)
+            if cmd.startswith("configura_aggiungi"):
+                key, err = self._find_app_key(text)
+                if err:
+                    return err
+                if key in L.growth_apps:
+                    return f"{self.app_label(key, '')} è già un'app di crescita."
+                L.growth_apps.append(key)
+                desc = f"app di crescita aggiunta: {self.app_label(key, '')} ({key})"
+            else:
+                t = text.lower()
+                match = [k for k in L.growth_apps
+                         if k == t or self.app_label(k, "").lower() == t]
+                if not match:
+                    return "Non è tra le app di crescita.\n\n" + self.growth_text()
+                key = match[0]
+                L.growth_apps.remove(key)
+                desc = f"app di crescita rimossa: {self.app_label(key, '')} ({key})"
+            self.limits_changed()
+            self._event("edit", f"{sender}: {desc}")
+            self._broadcast_others(chat_id, f"🌱 {sender}: {desc}.")
+            return f"🌱 Fatto: {desc}."
         if cmd == "configura_aggiorna":
             if self.on_update_request:
                 self.on_update_request(chat_id)
                 return "🔄 Controllo aggiornamenti in corso…"
             return "Aggiornamento non disponibile."
         return "Comando sconosciuto. /info_comandi per l'elenco."
+
+    def growth_text(self) -> str:
+        L = self.limits
+        lines = ["🌱 Crescita (non conta come svago).",
+                 "Siti (valgono solo se in Firefox TUTTE le schede aperte sono di questa lista):"]
+        lines += [f"• {s}" for s in L.growth_sites] or ["(nessuno)"]
+        lines.append("App:")
+        lines += [f"• {self.app_label(k, '')} ({k})" for k in L.growth_apps] or ["(nessuna)"]
+        lines.append(f"\nOggi: {fmt_min(self.state.get('growth', 0) / 60)}")
+        for name, secs in sorted((self.state.get("growth_detail") or {}).items(),
+                                 key=lambda kv: -kv[1]):
+            if secs >= 60:
+                lines.append(f"• {name}: {fmt_min(secs / 60)}")
+        return "\n".join(lines)
 
     def limits_text(self, date: dt.date) -> str:
         dtype = self.day_type(date)
@@ -1909,7 +2022,7 @@ class Engine:
         if self.remote_locked(now):
             lines.append("⏸ Pausa ATTIVA")
         if fg:
-            extra = " — scuola ✓" if self.last_school else ""
+            extra = f" — crescita ✓ ({self.last_growth})" if self.last_growth else ""
             lines.append(f"In primo piano: {fg.name}{extra}" + ("" if self.last_active else " (inattivo)"))
         else:
             lines.append("In primo piano: niente")
@@ -1918,8 +2031,8 @@ class Engine:
         for aid, l in app_lims.items():
             if not l.empty or usage.get(aid):
                 lines.append(f"• {self.limits.apps[aid].name}: {_vs(usage.get(aid, 0) / 60, l)}")
-        if self.state.get("school", 0) >= 60:
-            lines.append(f"📚 Scuola: {fmt_min(self.state['school'] / 60)}")
+        if self.state.get("growth", 0) >= 60:
+            lines.append(f"🌱 Crescita: {fmt_min(self.state['growth'] / 60)}")
         if self.state.get("together", 0) >= 60:
             lines.append(f"👨‍👦 Insieme: {fmt_min(self.state['together'] / 60)}")
         return "\n".join(lines)
@@ -1976,8 +2089,23 @@ def read_mozlz4(path: Path) -> bytes:
     return lz4_block_decompress(raw[12:])
 
 
+def growth_site_label(url: str, sites: list) -> str:
+    """Nome da mostrare nel report per la scheda attiva: la voce della lista che corrisponde."""
+    u = (url or "").strip()
+    low = u.lower()
+    if low.startswith("about:reader"):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(u).query).get("url")
+        return growth_site_label(q[0], sites) if q else "Firefox"
+    if low.startswith(("http://", "https://")):
+        host = (urllib.parse.urlsplit(u).hostname or "").lower()
+        for s in sites:
+            if site_allowed(host, [s]):
+                return s[2:] if s.startswith("*.") else s
+    return "Firefox"
+
+
 def firefox_url_ok(url: str, sites: list) -> bool:
-    """True se l'indirizzo è consentito per la scuola (pagine interne di Firefox comprese)."""
+    """True se l'indirizzo è consentito (siti di crescita o pagine interne di Firefox)."""
     u = (url or "").strip()
     if u.lower().startswith("view-source:"):
         u = u[12:]
@@ -2022,7 +2150,8 @@ class FirefoxSession:
         return best
 
     def read(self):
-        """(lista indirizzi di tutte le schede, numero finestre) oppure None se non affidabile."""
+        """(indirizzi di tutte le schede, numero finestre, indirizzo della scheda attiva)
+        oppure None se il file non è affidabile."""
         prof = self._running_profile()
         if prof is None:
             return None
@@ -2040,16 +2169,23 @@ class FirefoxSession:
         except (OSError, ValueError):
             return None
         urls = []
+        active = ""
         windows = js.get("windows") or []
-        for w in windows:
-            for tab in w.get("tabs") or []:
+        sel_win = int(js.get("selectedWindow") or 1)
+        for wi, w in enumerate(windows, 1):
+            tabs = w.get("tabs") or []
+            sel_tab = int(w.get("selected") or 1)
+            for ti, tab in enumerate(tabs, 1):
                 entries = tab.get("entries") or []
                 if entries:
                     idx = int(tab.get("index") or len(entries))
-                    urls.append(entries[max(1, min(idx, len(entries))) - 1].get("url", ""))
+                    url = entries[max(1, min(idx, len(entries))) - 1].get("url", "")
                 else:
-                    urls.append(tab.get("userTypedValue") or "about:blank")
-        res = (urls, len(windows))
+                    url = tab.get("userTypedValue") or "about:blank"
+                urls.append(url)
+                if wi == sel_win and ti == sel_tab:
+                    active = url
+        res = (urls, len(windows), active)
         self._cache = (f, m, res)
         return res
 
@@ -2550,32 +2686,33 @@ class LinuxPlatform:
         exact = [x for x in found if x[1].lower() == t]
         return exact or found
 
-    def firefox_school_ok(self, sites: list) -> bool:
-        """True solo se TUTTE le schede di TUTTE le finestre di Firefox sono consentite e
-        non ci sono finestre di Firefox che il file di sessione non conosce (es. anonime)."""
+    def firefox_growth(self, sites: list) -> str | None:
+        """Nome del sito della scheda attiva se TUTTE le schede di TUTTE le finestre di
+        Firefox sono consentite e non ci sono finestre che la sessione non conosce (es.
+        anonime); altrimenti None (il tempo conta come svago)."""
         res = self.firefox.read()
         if not res:
-            return False
-        urls, n_windows = res
+            return None
+        urls, n_windows, active = res
         if not urls or not all(firefox_url_ok(u, sites) for u in urls):
-            return False
+            return None
         x = self.x
         if x and x.dpy:
             wins = x.client_windows()
             if wins is None:
-                return False
+                return None
             ff = 0
             for w in wins:
                 wi = x.window_info(w)
                 if f"class:{(wi.cls or '').lower()}" not in FIREFOX_KEYS:
                     continue
                 if PRIVATE_TITLE.search(wi.title or ""):
-                    return False
+                    return None
                 if x.is_normal_window(w):
                     ff += 1
             if ff > n_windows:
-                return False
-        return True
+                return None
+        return growth_site_label(active, sites)
 
     def running_steam_games(self) -> dict:
         games: dict[str, list] = {}
@@ -2651,7 +2788,7 @@ def render_policy(v: dict | None = None) -> str:
 #  DeckWatch — IMPOSTAZIONI (policy.toml)
 #  Percorso sulla Deck: ~/.config/deckwatch/policy.toml
 #  Lo modificano solo i genitori, a mano; viene ricaricato da solo.
-#  I LIMITI (tempi per giorno e per app, siti della scuola) NON stanno qui:
+#  I LIMITI (tempi per giorno e per app, siti e app di crescita) NON stanno qui:
 #  si gestiscono da Telegram e vengono salvati in limiti.toml.
 #  Tempi in minuti, salvo dove indicato "secondi".
 # =====================================================================
@@ -2906,7 +3043,7 @@ class Daemon:
                 self.outbox.to_parents(f"⚠️ limiti.toml non valido: {e}\n"
                                        "Finché non viene corretto non ci sono limiti attivi.")
                 self.limits_store.mtime = self._mtime(p)
-                return Limits({"scuola": {"siti": DEFAULT_SCHOOL_SITES}}, policy.default_hard_margin)
+                return Limits({"crescita": {"siti": DEFAULT_GROWTH_SITES}}, policy.default_hard_margin)
         if policy.legacy:
             L = migrate_legacy_limits(policy.raw, policy.default_hard_margin)
             msg = "📦 Ho spostato i limiti da policy.toml al nuovo file limiti.toml."
@@ -3252,7 +3389,8 @@ def cmd_check(paths: Paths, args) -> int:
         print(f"❌ limiti.toml: {e}")
         return 1
     print("\n".join(L.summary_lines()))
-    print("\nSiti della scuola: " + ", ".join(L.school_sites))
+    print("\nCrescita — siti: " + ", ".join(L.growth_sites))
+    print("Crescita — app: " + (", ".join(L.growth_apps) or "nessuna"))
     return 0
 
 
@@ -3269,8 +3407,11 @@ def cmd_fg(paths: Paths, args) -> int:
             idle_s = "?" if idle is None else f"{idle:.0f}s"
             if fg:
                 extra = ""
-                if fg.key in FIREFOX_KEYS:
-                    extra = "  scuola=" + ("sì" if p.firefox_school_ok(L.school_sites) else "no")
+                if L.is_growth_app(fg.key, fg.name):
+                    extra = "  crescita=sì (app)"
+                elif fg.key in FIREFOX_KEYS:
+                    g = p.firefox_growth(L.growth_sites)
+                    extra = f"  crescita={'sì (' + g + ')' if g else 'no'}"
                 print(f"{fg.key:<30} {fg.name!r:<28} inattivo da {idle_s}{extra}")
             else:
                 print(f"(nessuna finestra attiva)  inattivo da {idle_s}")
@@ -3371,7 +3512,7 @@ def cmd_test_notifications(paths: Paths, args) -> int:
 
 
 def cmd_debug_firefox(paths: Paths, args) -> int:
-    """Diagnosi della whitelist scuola: mostra solo i domini delle schede, non gli indirizzi."""
+    """Diagnosi dei siti di crescita: mostra solo i domini delle schede, non gli indirizzi."""
     _, L = _load_rules(paths)
     p = LinuxPlatform()
     p.refresh(force=True)
@@ -3398,18 +3539,19 @@ def cmd_debug_firefox(paths: Paths, args) -> int:
     print(f"Profilo scelto: {prof}")
     res = fs.read()
     if not res:
-        print("Sessione non leggibile o vecchia → scuola=no")
+        print("Sessione non leggibile o vecchia → crescita=no")
         return 0
-    urls, nwin = res
+    urls, nwin, active = res
     print(f"Finestre nella sessione: {nwin}, schede: {len(urls)}")
     for i, u in enumerate(urls, 1):
         host = urllib.parse.urlsplit(u).hostname or u.split("?")[0][:40]
-        print(f"  scheda {i}: {host} → {'consentito' if firefox_url_ok(u, L.school_sites) else 'NON consentito'}")
+        print(f"  scheda {i}: {host} → {'consentito' if firefox_url_ok(u, L.growth_sites) else 'NON consentito'}"
+              + ("  ← attiva" if u == active else ""))
     x = p.x
     if x and x.dpy:
         wins = x.client_windows()
         if wins is None:
-            print("Elenco finestre dello schermo non disponibile → scuola=no")
+            print("Elenco finestre dello schermo non disponibile → crescita=no")
         else:
             for w in wins:
                 wi = x.window_info(w)
@@ -3418,7 +3560,8 @@ def cmd_debug_firefox(paths: Paths, args) -> int:
                           f"anonima={'sì' if PRIVATE_TITLE.search(wi.title or '') else 'no'}")
     else:
         print("Display non disponibile: controllo finestre saltato")
-    print(f"Risultato: scuola={'sì' if p.firefox_school_ok(L.school_sites) else 'no'}")
+    g = p.firefox_growth(L.growth_sites)
+    print(f"Risultato: crescita={'sì (' + g + ')' if g else 'no'}")
     return 0
 
 
@@ -3501,7 +3644,7 @@ def main(argv=None) -> int:
     p.add_argument("--send", action="store_true")
     sub.add_parser("test", help="invia messaggi di prova (Telegram ed email)")
     sub.add_parser("test-notifiche", help="prova notifiche, popup e suono sulla Deck")
-    sub.add_parser("debug-firefox", help="diagnosi della whitelist scuola su Firefox")
+    sub.add_parser("debug-firefox", help="diagnosi dei siti di crescita su Firefox")
     p = sub.add_parser("telegram-setup", help="trova i chat id dei genitori")
     p.add_argument("--save", action="store_true")
     sub.add_parser("update", help="aggiorna DeckWatch ora")

@@ -34,7 +34,8 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
     margini, countdown, app escluse e consentite). Lo modificano solo i genitori, a
     mano.
   - `~/.config/deckwatch/limiti.toml`: limiti feriali/festivi, app con nome e
-    `match`, siti della scuola. Lo scrive il bot; si può modificare anche a mano.
+    `match`, `[crescita]` con siti e app. Lo scrive il bot; si può modificare anche
+    a mano. Il vecchio `[scuola]` viene letto e riscritto come `[crescita]`.
   - `~/.local/state/deckwatch/`: `days/AAAA-MM-GG.json`, `overrides.json` (pausa,
     extra, tipo di giorno, modalità insieme, ultimo settimanale), `meta.json`,
     `heartbeat.json`, `update.json`, `outbox/`.
@@ -73,13 +74,18 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
    - `/timer_concedi_extra` funziona anche in monitor.
    - `/timer_spegni_deck` in monitor mostra solo un avviso simulato.
 4. **Pausa** (`/timer_pausa [min]`)
-   - Funziona anche in monitor e mette in pausa lo **svago**: Firefox con solo siti
-     della scuola resta utilizzabile.
+   - Funziona anche in monitor e mette in pausa lo **svago**: app e siti di crescita
+     restano utilizzabili.
    - 60 secondi per salvare; l'inizio della pausa è salvato e sopravvive ai riavvii.
    - Il blocco totale è rimandato al punto 8.
-5. **Whitelist scuola**
-   - Il tempo non conta come svago solo se Firefox è in primo piano e **tutte** le
-     schede di tutte le finestre sono in whitelist.
+5. **Crescita** (dalla v0.4.0, prima "scuola")
+   - Tempo che non conta come svago. Comprende **siti** e **app**, per esempio Scratch
+     o un editor di codice.
+   - **Report:** dettaglio per sito (attribuito alla scheda attiva) e per app. La
+     navigazione normale resta cumulativa ("Browser"), senza siti. Esempi di siti
+     concessi ma da misurare: chess.com, claude.ai.
+   - **Siti:** il tempo non conta come svago solo se Firefox è in primo piano e
+     **tutte** le schede di tutte le finestre sono nella lista.
    - Le schede si leggono da `sessionstore-backups/recovery.jsonlz4`, con un
      decompressore LZ4 scritto a mano. Gli indirizzi non vengono salvati.
    - Le finestre di Firefox sullo schermo non conosciute dalla sessione (per esempio
@@ -88,7 +94,10 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
    - **Lista iniziale:** `nuvola.madisoft.it`, `*.wikipedia.org`,
      `classroom.google.com`, `docs.google.com`, `drive.google.com`,
      `meet.google.com`, `accounts.google.com`.
-   - Si gestisce da Telegram. Nel report c'è solo il totale "📚 Scuola".
+   - **Comandi:** `/configura_aggiungi_sito_crescita`, `/configura_rimuovi_sito_crescita`,
+     `/configura_aggiungi_app_crescita` (per nome o identificativo),
+     `/configura_rimuovi_app_crescita`, `/info_crescita`. I vecchi `..._scuola` restano
+     come alias.
 6. **Modalità insieme**
    - `/insieme_inizio [min]`: il tempo va in "Insieme" e non conta.
    - Promemoria a 90 minuti (sulla Deck e su Telegram), poi ogni 30 solo su Telegram.
@@ -123,7 +132,12 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
 12. **Email:** solo via Brevo, con una chiave SMTP di solo invio. Niente password per
     le app di Google.
 
-## Stato (aggiornato al 21/11/2026, versione 0.3.2)
+## Stato (aggiornato al 21/11/2026, versione 0.4.0)
+
+La 0.4.0 introduce la "crescita" (siti e app con dettaglio nel report) al posto della
+"scuola". Non è ancora provata sulla Deck: da verificare con
+`deckwatch debug-firefox` (deve indicare il sito della scheda attiva) e con
+`/configura_aggiungi_app_crescita`.
 
 **Verificato sulla Deck reale**
 - Installazione e aggiornamento automatico.
@@ -136,8 +150,8 @@ stato attuale e prossimi passi. Va aggiornato a ogni sessione di lavoro signific
 
   Da qui la scelta: notifica critica al tempo concordato, popup più suono al massimo.
 - **Whitelist Firefox** (Flatpak, profilo in
-  `~/.var/app/org.mozilla.firefox/.mozilla/firefox/`): `scuola=sì` con solo
-  Wikipedia, `scuola=no` con YouTube. Subito dopo l'apertura di Firefox
+  `~/.var/app/org.mozilla.firefox/.mozilla/firefox/`): sì con solo Wikipedia, no con
+  YouTube (verificato con la 0.3.2, quando si chiamava ancora "scuola"). Subito dopo l'apertura di Firefox
   `recovery.jsonlz4` non esiste per un po' e il tempo conta come svago: è accettato.
 
 **Non ancora verificato**

@@ -19,8 +19,13 @@ Questo file contiene i dettagli tecnici.
   - *concordato*: arriva un avviso "chiudi appena possibile";
   - *massimo*: in modalità enforce l'app si chiude; in modalità monitor arriva solo un
     avviso.
-- **Whitelist della scuola:** non conta come svago solo quando Firefox è in primo
-  piano e **tutte** le schede aperte sono su siti della whitelist.
+- **Crescita** (scuola, studio, programmazione…): tempo che non conta come svago.
+  - **Siti:** valgono solo quando Firefox è in primo piano e **tutte** le schede aperte
+    sono su siti della lista.
+  - **App:** per esempio Scratch o un editor di codice.
+
+  Nel report il tempo di crescita ha il dettaglio per sito e per app; la navigazione
+  normale resta un unico totale "Browser".
 - **Modalità insieme:** il tempo passato a giocare con i genitori non conta.
 - **Report:** giornaliero e settimanale (sabato→venerdì), ai genitori su Telegram e al
   figlio via email (Brevo).
@@ -56,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.s
 |---|---|---|
 | `~/.config/deckwatch/config.toml` | a mano, una volta | token Telegram, chat dei genitori, dati Brevo |
 | `~/.config/deckwatch/policy.toml` | a mano | impostazioni tecniche: modalità, inattività, margini, app escluse |
-| `~/.config/deckwatch/limiti.toml` | il bot (anche a mano) | limiti feriali/festivi, nomi delle app, siti della scuola |
+| `~/.config/deckwatch/limiti.toml` | il bot (anche a mano) | limiti feriali/festivi, nomi delle app, siti e app di crescita |
 | `~/.local/state/deckwatch/` | il programma | dati delle giornate, coda dei messaggi, stato dei comandi |
 
 I file delle regole vengono ricaricati da soli entro circa 15 secondi. Se contengono
@@ -78,10 +83,10 @@ richiede dati, il bot risponde con un esempio.
 | `/info_stato` | cosa sta usando ora e il tempo di oggi |
 | `/info_limiti` | limiti in vigore e tipo di giorno |
 | `/info_app` | app viste negli ultimi 7 giorni, con identificativo |
-| `/info_scuola` | siti della scuola |
+| `/info_crescita` | siti e app di crescita, con il tempo di oggi |
 | `/info_versione` | versione installata e ultimo controllo degli aggiornamenti |
 | `/info_comandi` | elenco dei comandi con esempi |
-| `/timer_pausa [minuti]`, `/timer_riprendi` | pausa dello svago (Firefox sui siti della scuola resta utilizzabile) |
+| `/timer_pausa [minuti]`, `/timer_riprendi` | pausa dello svago (app e siti di crescita restano utilizzabili) |
 | `/timer_concedi_extra [app] minuti` | minuti in più solo per oggi |
 | `/timer_considera_oggi_festivo` / `_feriale` | cambia il tipo di giorno di oggi |
 | `/timer_spegni_deck` | spegne la Deck (in monitor: avviso simulato) |
@@ -89,7 +94,8 @@ richiede dati, il bot risponde con un esempio.
 | `/limite_imposta <app\|totale> [feriale\|festivo] concordato [massimo]` | massimo predefinito: concordato + 5 |
 | `/limite_rimuovi <app\|totale> [feriale\|festivo]` | toglie un limite |
 | `/configura_nome_app <identificativo> <nome>` | dà un nome leggibile a un'app |
-| `/configura_aggiungi_sito_scuola`, `/configura_rimuovi_sito_scuola` | gestione della whitelist |
+| `/configura_aggiungi_sito_crescita`, `/configura_rimuovi_sito_crescita` | siti di crescita |
+| `/configura_aggiungi_app_crescita`, `/configura_rimuovi_app_crescita` | app di crescita (per nome o identificativo) |
 | `/configura_aggiorna` | aggiorna subito |
 
 Ogni modifica viene notificata anche all'altro genitore.
@@ -100,7 +106,7 @@ Ogni modifica viene notificata anche all'altro genitore.
 deckwatch status          tempo di oggi
 deckwatch check           verifica policy.toml e limiti.toml
 deckwatch games           giochi Steam installati con appid
-deckwatch fg --watch      app in primo piano, inattività, stato "scuola" di Firefox
+deckwatch fg --watch      app in primo piano, inattività, stato "crescita"
 deckwatch report --date 2026-11-19 [--send]
 deckwatch test            messaggi di prova Telegram ed email
 deckwatch test-notifiche  prova notifiche, popup e suono

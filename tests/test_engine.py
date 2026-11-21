@@ -36,7 +36,7 @@ class FakePlatform:
     def __init__(self):
         self.fg = None
         self.idle = 0.0
-        self.school = False
+        self.growth = None   # etichetta del sito attivo se Firefox è "crescita"
         self.notes, self.popups, self.kills, self.steam_kills = [], [], [], []
         self.alarms = 0
         self.games = {}
@@ -53,7 +53,7 @@ class FakePlatform:
     def running_steam_games(self): return dict(self.games)
     def steam_name(self, appid): return self.library.get(appid)
     def steam_find(self, t): return [(a, n) for a, n in self.library.items() if t in n.lower()]
-    def firefox_school_ok(self, sites): return self.school
+    def firefox_growth(self, sites): return self.growth
     def poweroff(self): self.powered_off = True
 
 
@@ -121,17 +121,36 @@ class CountingTests(Base):
         self.run_for(60)
         self.assertAlmostEqual(self.eng.state["total"], 60)
 
-    def test_school_firefox_not_counted(self):
+    def test_growth_firefox_not_counted_with_site_detail(self):
         self.pf.fg = FF
-        self.pf.school = True
+        self.pf.growth = "wikipedia.org"
         self.run_for(600)
+        self.pf.growth = "chess.com"
+        self.run_for(300)
         self.assertAlmostEqual(self.eng.state["total"], 0)
-        self.assertAlmostEqual(self.eng.state["school"], 600)
-        self.pf.school = False  # c'è una scheda non della scuola
+        self.assertAlmostEqual(self.eng.state["growth"], 900)
+        self.pf.growth = None  # c'è una scheda non consentita
         self.run_for(60)
         self.assertAlmostEqual(self.eng.state["total"], 60)
         body = d.build_report(self.eng.state, self.eng.limits, "parents")[1]
-        self.assertIn("📚 Scuola: 10 min (non conteggiato)", body)
+        self.assertIn("🌱 Crescita: 15 min (non conteggiato)", body)
+        self.assertIn("DETTAGLIO CRESCITA\n• wikipedia.org: 10 min\n• chess.com: 5 min", body)
+        self.assertIn("• Browser: 1 min", body)   # navigazione normale: solo cumulativo
+
+    def test_growth_app(self):
+        scratch = d.Foreground("class:scratch-desktop", "Scratch 3.0", window=9)
+        self.pf.fg = scratch
+        self.run_for(60)
+        self.assertIn("Fatto", self.cmd("/configura_aggiungi_app_crescita scratch"))
+        self.run_for(600)
+        self.assertAlmostEqual(self.eng.state["total"], 60)
+        self.assertAlmostEqual(self.eng.state["growth_detail"]["Scratch 3.0"], 600)
+        self.assertIn("Scratch 3.0 (class:scratch-desktop)", self.cmd("/info_crescita"))
+        self.cmd("/timer_pausa")
+        self.run_for(120)
+        self.assertEqual(self.pf.kills, [])   # le app di crescita restano usabili in pausa
+        self.cmd("/configura_rimuovi_app_crescita class:scratch-desktop")
+        self.assertEqual(self.eng.limits.growth_apps, [])
 
 
 class MonitorTests(Base):
@@ -159,7 +178,7 @@ class MonitorTests(Base):
         self.run_for(59 * 60)
         self.assertNotIn("⏳ Countdown", self.titles())
 
-    def test_pause_works_in_monitor_and_school_survives(self):
+    def test_pause_works_in_monitor_and_growth_survives(self):
         self.pf.fg = MC
         self.cmd("/timer_pausa")
         self.run_for(30)
@@ -168,10 +187,10 @@ class MonitorTests(Base):
         self.run_for(40)
         self.assertEqual(self.pf.kills, ["class:minecraft"])
         self.pf.fg = FF
-        self.pf.school = True
+        self.pf.growth = "wikipedia.org"
         self.run_for(60)
-        self.assertEqual(self.pf.kills, ["class:minecraft"])  # Firefox per la scuola resta
-        self.pf.school = False
+        self.assertEqual(self.pf.kills, ["class:minecraft"])  # Firefox su siti di crescita resta
+        self.pf.growth = None
         self.run_for(10)
         self.assertTrue(any("non è disponibile ora" in t for t in self.titles()))
         self.run_for(30)
@@ -215,7 +234,7 @@ class EnforceTests(Base):
         self.run_for(60)
         self.assertEqual(len(self.pf.kills), 2)
 
-    def test_total_blocks_except_allowed_and_school(self):
+    def test_total_blocks_except_allowed_and_growth(self):
         self.pf.fg = MC
         self.run_for(125 * 60 + 10)
         self.assertIn("class:minecraft", self.pf.kills)
@@ -223,7 +242,7 @@ class EnforceTests(Base):
         self.pf.fg = STEAM
         self.run_for(60)
         self.pf.fg = FF
-        self.pf.school = True
+        self.pf.growth = "wikipedia.org"
         self.run_for(60)
         self.assertEqual(len(self.pf.kills), n)
 
@@ -306,19 +325,32 @@ class CommandTests(Base):
 
     def test_saved_limits_roundtrip(self):
         self.cmd("/limite_imposta hades 45")
-        self.cmd("/configura_aggiungi_sito_scuola https://www.treccani.it/enciclopedia/roma")
+        self.cmd("/configura_aggiungi_sito_crescita https://www.treccani.it/enciclopedia/roma")
         L = self.eng.limits
         L2 = d.Limits(d.load_toml_text(L.to_toml()), 5)
         self.assertEqual(d.limits_diff(L, L2), [])
-        self.assertIn("treccani.it", L2.school_sites)
+        self.assertIn("treccani.it", L2.growth_sites)
 
-    def test_school_sites_commands(self):
-        r = self.cmd("/configura_aggiungi_sito_scuola it.wikipedia.org")
+    def test_growth_sites_commands(self):
+        r = self.cmd("/configura_aggiungi_sito_crescita chess.com")
         self.assertIn("aggiunto", r)
-        self.assertIn("già", self.cmd("/configura_aggiungi_sito_scuola it.wikipedia.org"))
-        self.cmd("/configura_rimuovi_sito_scuola it.wikipedia.org")
-        self.assertNotIn("it.wikipedia.org", self.eng.limits.school_sites)
-        self.assertIn("nuvola.madisoft.it", self.cmd("/info_scuola"))
+        self.assertIn("già", self.cmd("/configura_aggiungi_sito_crescita chess.com"))
+        self.cmd("/configura_rimuovi_sito_crescita chess.com")
+        self.assertNotIn("chess.com", self.eng.limits.growth_sites)
+        self.assertIn("nuvola.madisoft.it", self.cmd("/info_crescita"))
+        self.assertIn("nuvola.madisoft.it", self.cmd("/info_scuola"))   # vecchio nome
+        self.cmd("/configura_aggiungi_sito_scuola claude.ai")
+        self.assertIn("claude.ai", self.eng.limits.growth_sites)
+
+    def test_legacy_scuola_section_and_state(self):
+        L = d.Limits(d.load_toml_text('[scuola]\nsiti = ["nuvola.madisoft.it"]'), 5)
+        self.assertEqual(L.growth_sites, ["nuvola.madisoft.it"])
+        self.assertIn("[crescita]", L.to_toml())
+        (self.root / "days").mkdir(exist_ok=True)
+        (self.root / "days" / "2026-11-10.json").write_text(
+            '{"date": "2026-11-10", "total": 0, "apps": {}, "school": 600}')
+        st = self.store.load("2026-11-10")
+        self.assertEqual((st["growth"], st["growth_detail"]), (600, {"Scuola": 600}))
 
     def test_nome_app_and_new_app_alert(self):
         game = d.Foreground("class:game.exe", "game.exe", title="Fortnite")
@@ -362,7 +394,7 @@ class ReportTests(Base):
         self.assertEqual(len(daily), 1)
         body = daily[0][1]
         self.assertIn("giorno feriale", body)
-        self.assertLess(body.index("RIEPILOGO"), body.index("DETTAGLIO"))
+        self.assertLess(body.index("RIEPILOGO"), body.index("DETTAGLIO SVAGO"))
         self.assertIn("✅ Geometry Dash: 30 min / 1h 00m", body)
         self.assertEqual(len([k for k in self.ob.kid if "giovedì" in k[0]]), 1)
 
@@ -441,7 +473,7 @@ class FirefoxTests(unittest.TestCase):
         self.assertEqual(d.lz4_block_decompress(lz4_literals(data)), data)
 
     def test_url_rules(self):
-        sites = [d._norm_site(s) for s in d.DEFAULT_SCHOOL_SITES]
+        sites = [d._norm_site(s) for s in d.DEFAULT_GROWTH_SITES]
         ok = ["https://it.wikipedia.org/wiki/Roma", "https://wikipedia.org", "about:newtab",
               "https://nuvola.madisoft.it/login", "https://docs.google.com/document/1"]
         ko = ["https://www.youtube.com/", "https://sites.google.com/view/giochi",
@@ -452,6 +484,8 @@ class FirefoxTests(unittest.TestCase):
         for u in ko:
             self.assertFalse(d.firefox_url_ok(u, sites), u)
         self.assertEqual(d._norm_site("https://www.treccani.it/x"), "treccani.it")
+        self.assertEqual(d.growth_site_label("https://it.wikipedia.org/wiki/A", sites), "wikipedia.org")
+        self.assertEqual(d.growth_site_label("about:newtab", sites), "Firefox")
         self.assertTrue(d.site_allowed("www.treccani.it", ["treccani.it"]))
 
     def test_session_reader_all_tabs(self):
@@ -460,7 +494,7 @@ class FirefoxTests(unittest.TestCase):
             (prof / "sessionstore-backups").mkdir(parents=True)
             (prof / "prefs.js").write_text("")
             os.symlink("127.0.0.1:+1234", prof / "lock")
-            sess = {"windows": [{"tabs": [
+            sess = {"selectedWindow": 1, "windows": [{"selected": 2, "tabs": [
                 {"entries": [{"url": "https://it.wikipedia.org/wiki/A"}], "index": 1},
                 {"entries": [{"url": "https://www.youtube.com/"},
                              {"url": "https://it.wikipedia.org/wiki/B"}], "index": 2}]}]}
@@ -469,8 +503,9 @@ class FirefoxTests(unittest.TestCase):
             f.write_bytes(b"mozLz40\0" + len(raw).to_bytes(4, "little") + lz4_literals(raw))
             fs = d.FirefoxSession()
             fs.roots = [Path(t)]
-            urls, n = fs.read()
+            urls, n, active = fs.read()
             self.assertEqual(n, 1)
+            self.assertEqual(active, "https://it.wikipedia.org/wiki/B")
             self.assertEqual(urls, ["https://it.wikipedia.org/wiki/A", "https://it.wikipedia.org/wiki/B"])
 
 
