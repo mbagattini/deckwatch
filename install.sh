@@ -103,9 +103,8 @@ if [[ ! -f $CFG_DIR/config.toml ]]; then
     EM_SENDER="$(ask 'Indirizzo mittente verificato in Brevo')"
     EM_KID="$(ask 'Email di tuo figlio (per il suo report)')"
   fi
-  REPORT_TIME="$(ask 'Ora del report giornaliero' '21:30')"
   TG_TOKEN="$TG_TOKEN" EM_USER="$EM_USER" EM_PASS="$EM_PASS" EM_KID="$EM_KID" EM_SENDER="$EM_SENDER" \
-  REPORT_TIME="$REPORT_TIME" REPO_RAW="$REPO_RAW" \
+  REPO_RAW="$REPO_RAW" \
   python3 - "$SRC_DIR/config.example.toml" "$CFG_DIR/config.toml" <<'EOF'
 import json, os, re, sys
 src, dst = sys.argv[1], sys.argv[2]
@@ -115,7 +114,6 @@ def setkey(text, section, key, value):
     pat = re.compile(r"(\[%s\][^\[]*?^%s\s*=\s*)[^\n#]*" % (re.escape(section), key), re.M | re.S)
     return pat.sub(lambda m: m.group(1) + value + ("   " if "#" in m.group(0) else ""), text, count=1)
 e = os.environ
-t = re.sub(r'^report_time = .*$', 'report_time = ' + q(e["REPORT_TIME"]), t, count=1, flags=re.M)
 t = re.sub(r'^update_url = .*$', 'update_url = ' + q(e["REPO_RAW"]), t, count=1, flags=re.M)
 t = setkey(t, "telegram", "token", q(e["TG_TOKEN"]))
 t = setkey(t, "email", "username", q(e["EM_USER"]))

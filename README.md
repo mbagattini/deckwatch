@@ -4,11 +4,14 @@ Monitor del tempo di gioco per **Steam Deck** (SteamOS, Modalità Desktop e Moda
 
 - Misura il tempo **per app/gioco**: conta solo l'app in primo piano, a Deck accesa
   e con input recente (tastiera, mouse, touch, controlli).
-- Limiti **soft** (solo avviso) e **hard** (tempo di grazia, poi chiusura del gioco),
-  per singola app e totali, diversi per giorno della settimana.
-- **Report giornaliero** ai genitori su Telegram e al figlio via email.
-- **Comandi remoti** dal bot Telegram: blocco (kill-switch), sblocco, minuti extra,
-  stato, spegnimento.
+- Limiti **soft** (solo avviso) e **hard**: totali per giorno della settimana e,
+  facoltativi, per singola app.
+- Due modalità: **monitor** (predefinita: solo avvisi, e nel report cosa sarebbe
+  stato chiuso) ed **enforce** (chiusura dopo il tempo di grazia).
+- **Report giornaliero** e **riepilogo settimanale** ai genitori su Telegram e al
+  figlio via email.
+- **Comandi remoti** dal bot Telegram: stato, report, blocco (kill-switch) e sblocco;
+  in modalità enforce anche minuti extra e spegnimento.
 - Solo Python standard, installato nella home: niente `sudo` e sopravvive agli
   aggiornamenti di SteamOS. Si aggiorna da solo.
 
@@ -38,7 +41,7 @@ riaccensione. Un `/spegni` arrivato con più di 10 minuti di ritardo viene ignor
    ```bash
    curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.sh | bash
    ```
-3. Rispondi alle domande: token del bot, dati Brevo, email del figlio, ora del report.
+3. Rispondi alle domande: token del bot, dati Brevo, email del figlio.
 4. Quando richiesto, **entrambi i genitori** aprono il bot su Telegram e premono
    **Avvia**. L'installer registra le vostre chat.
 5. Prova l'invio dei messaggi: `deckwatch test`.
@@ -77,19 +80,42 @@ hard = 60
 - Il file viene ricaricato da solo entro circa 15 secondi. Se contiene un errore,
   arriva un messaggio Telegram e resta in uso la versione precedente. Per
   verificarlo: `deckwatch check`.
-- Per un giorno particolare si usa la sezione `[exceptions.AAAA-MM-GG]`; per le
-  eccezioni al volo c'è `/extra` su Telegram.
+- I limiti per app sono facoltativi: un gioco senza regola (per esempio Minecraft)
+  conta solo nel tempo totale del giorno.
+- Per un giorno particolare si usa la sezione `[exceptions.AAAA-MM-GG]`; in
+  modalità enforce ci sono anche le eccezioni al volo con `/extra` su Telegram.
 
 ### Cosa succede al limite
 
+Con `mode = "monitor"` (predefinito):
+
 1. **soft:** notifica.
 2. **Avvisi a −10, −5 e −1 minuti** dal limite hard.
-3. **Limite hard:** popup "tempo finito, hai 5 minuti per salvare".
-4. **Fine della grazia:** il gioco viene chiuso e i genitori ricevono un avviso.
+3. **Limite hard:** popup "tempo finito: per ora è solo un avviso".
+4. Nel report dei genitori compare "(simulazione) Geometry Dash sarebbe stato
+   chiuso". Non viene chiuso niente.
+
+Con `mode = "enforce"` i passi 1–3 sono uguali, poi:
+
+4. **Fine della grazia** (5 minuti): il gioco viene chiuso e i genitori ricevono
+   un avviso.
 5. **Se lo riapre:** avviso, poi chiusura dopo 20 secondi.
 6. **Tempo totale finito:** si chiudono tutte le app, tranne quelle in
    `always_allowed` (Steam, impostazioni, file). In alternativa,
    `on_total_exceeded = "shutdown"` spegne la Deck.
+
+Il blocco remoto `/stop` funziona in entrambe le modalità.
+
+## Report
+
+- **Giornaliero:** parte a fine giornata, cioè alla prima accensione del giorno
+  dopo (o a mezzanotte se la Deck è accesa). Contiene la giornata intera.
+- **Settimanale** (da sabato a venerdì): parte alla prima accensione da sabato in
+  poi.
+- In alto c'è un **riepilogo** (✅ nei limiti, 🟡 oltre la soglia soft, ❌ oltre il
+  limite hard), sotto il **dettaglio** per app. Il report dei genitori ha in più
+  gli **eventi** (limiti raggiunti, simulazioni, chiusure, comandi).
+- Durante il giorno: `/oggi` su Telegram.
 
 ## Comandi Telegram (solo per i genitori)
 
@@ -101,9 +127,9 @@ hard = 60
 | `/stop` | blocca la Deck finché non arriva `/sblocca` (60 secondi per salvare, poi chiude tutto e mostra un popup) |
 | `/stop 60` | blocca per 60 minuti |
 | `/sblocca` | toglie il blocco |
-| `/extra 30` | 30 minuti in più sul totale di oggi (anche negativi) |
-| `/extra geometry_dash 15` | 15 minuti in più a un'app |
-| `/spegni` | spegne la Deck tra 30 secondi |
+| `/extra 30` | solo enforce: 30 minuti in più sul totale di oggi (anche negativi) |
+| `/extra geometry_dash 15` | solo enforce: 15 minuti in più a un'app |
+| `/spegni` | solo enforce: spegne la Deck tra 30 secondi |
 
 Ogni comando viene notificato anche all'altro genitore.
 

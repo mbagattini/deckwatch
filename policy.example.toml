@@ -8,6 +8,13 @@
 #  Giorni: mon tue wed thu fri sat sun, oppure i gruppi weekdays / weekend.
 # =====================================================================
 
+# Modalità:
+#   "monitor" = misura, avvisa e manda i report, ma NON chiude nulla: nel report
+#               dei genitori compare cosa sarebbe stato chiuso ("simulazione").
+#               Il blocco remoto /stop funziona comunque.
+#   "enforce" = applica i limiti hard: chiusura dopo il tempo di grazia.
+mode = "monitor"
+
 # Minuti senza toccare niente (tastiera, mouse, touch, controlli) dopo i quali
 # il tempo smette di essere conteggiato.
 idle_minutes = 3
@@ -62,8 +69,10 @@ weekend = { soft = 150, hard = 180 }
 # fri = { hard = 150 }
 
 # ---------------------------------------------------------------------
-# Limiti per singola app/gioco. Il nome dopo "apps." è l'identificativo da
-# usare nei comandi Telegram (es. /extra geometry_dash 15).
+# Limiti per singola app/gioco (FACOLTATIVI). Un gioco non elencato qui, o
+# elencato senza soft/hard (es. Minecraft), conta solo nel tempo totale.
+# Il nome dopo "apps." è l'identificativo da usare nei comandi Telegram
+# (es. /extra geometry_dash 15).
 #   match: "steam:<appid>"  per i giochi Steam (deckwatch games li elenca)
 #          "class:<nome>"   per le altre app (deckwatch fg li mostra)
 #          "name:*testo*"   per nome visualizzato; * = qualunque testo
@@ -74,6 +83,9 @@ match = ["steam:322170"]
 soft = 45
 hard = 60
 # sat = { hard = 90 }
+
+# Limiti diversi per giorno anche per le app:
+# [apps.geometry_dash]  ...  weekend = { hard = 90 }
 
 # Un'app senza soft/hard serve solo a raggruppare il tempo nel report.
 [apps.browser]

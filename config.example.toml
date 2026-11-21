@@ -5,9 +5,9 @@
 #  Prova invio messaggi:  deckwatch test
 # =====================================================================
 
-# Ora di invio del report giornaliero (se la Deck è spenta, parte alla
-# prima accensione successiva).
-report_time = "21:30"
+# I report partono a fine giornata: alla prima accensione del giorno dopo
+# (o a mezzanotte se la Deck è accesa). Il riepilogo settimanale (sabato→venerdì)
+# parte dal sabato. Durante il giorno: /oggi su Telegram.
 
 # Aggiornamenti automatici (controllo una volta al giorno).
 update_url = "https://raw.githubusercontent.com/mbagattini/deckwatch/main"

@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import deckwatch as d  # noqa: E402
 
 POLICY = """
+mode = "enforce"
 idle_minutes = 3
 lock_grace_seconds = 60
 [grace]
@@ -204,21 +205,28 @@ class ShutdownPolicy(Base):
 
 
 class ReportTests(Base):
-    def test_report_at_time_and_rollover(self):
+    def test_daily_report_sent_at_rollover(self):
         self.pf.fg = GD
         self.run_for(30 * 60)
-        self.now = self.now.replace(hour=21, minute=31)
+        self.now = self.now.replace(hour=23, minute=59, second=50)
         self.eng.tick(self.now, 5)
-        self.assertEqual(len(self.ob.parents), 1)
-        self.assertEqual(len(self.ob.kid), 1)
-        self.assertIn("Geometry Dash", self.ob.parents[0][1])
-        # gioca ancora dopo il report, poi mezzanotte
-        self.run_for(10 * 60)
+        self.assertEqual(self.ob.parents, [])  # niente report in serata
         self.now = dt.datetime(2026, 11, 20, 0, 0, 5)
         self.eng.tick(self.now, 5)
         self.assertEqual(self.eng.state["date"], "2026-11-20")
-        self.assertIsNotNone(self.eng.state["prev_late"])
         self.assertEqual(len(self.ob.parents), 1)
+        self.assertEqual(len(self.ob.kid), 1)
+        body = self.ob.parents[0][1]
+        self.assertLess(body.index("RIEPILOGO"), body.index("DETTAGLIO"))
+        self.assertIn("✅ Geometry Dash: 30 min / 1h 00m", body)
+
+    def test_report_shows_overs_for_kid(self):
+        self.pf.fg = GD
+        self.run_for(64 * 60)
+        subj, body = d.build_report(self.eng.state, self.eng.policy, "kid")
+        self.assertIn("❌ Geometry Dash: 1h 04m / 1h 00m (+4 min)", body)
+        self.assertIn("oltre il tempo concordato per: Geometry Dash", body)
+        self.assertNotIn("EVENTI", body)
 
     def test_missed_report_sent_at_next_start(self):
         self.pf.fg = FF
@@ -226,8 +234,9 @@ class ReportTests(Base):
         self.eng.save()
         eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
         eng2.start(dt.datetime(2026, 11, 21, 9, 0))
-        self.assertEqual(len(self.ob.parents), 1)
-        self.assertIn("giovedì", self.ob.parents[0][1])
+        daily = [p for p in self.ob.parents if p[0].startswith("DeckWatch 19/11")]
+        self.assertEqual(len(daily), 1)
+        self.assertIn("giovedì", daily[0][1])
 
     def test_restart_keeps_counters(self):
         self.pf.fg = FF
@@ -236,6 +245,73 @@ class ReportTests(Base):
         eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
         eng2.start(self.now)
         self.assertAlmostEqual(eng2.state["total"], 600)
+
+
+MONITOR = POLICY.replace('mode = "enforce"', 'mode = "monitor"')
+
+
+class MonitorModeTests(Base):
+    policy_text = MONITOR
+
+    def test_no_kill_but_simulation_and_warnings(self):
+        self.pf.fg = GD
+        self.run_for(70 * 60)
+        self.assertEqual(self.pf.kills, [])
+        self.assertTrue(any("tempo finito" in n[0] for n in self.pf.notes))
+        self.assertTrue(any("solo un avviso" in n[1] for n in self.pf.notes))
+        sims = [e for e in self.eng.state["events"] if e[2] == "sim"]
+        self.assertEqual(len(sims), 1)
+        body = d.build_report(self.eng.state, self.eng.policy, "parents")[1]
+        self.assertIn("(simulazione) Geometry Dash sarebbe stato chiuso", body)
+
+    def test_lock_still_works(self):
+        self.pf.fg = FF
+        self.eng.handle_command(1, "Mamma", "/stop", self.now.timestamp(), self.now)
+        self.run_for(70)
+        self.assertEqual(self.pf.kills, ["class:firefox"])
+
+    def test_extra_disabled(self):
+        r = self.eng.handle_command(1, "Papà", "/extra 30", self.now.timestamp(), self.now)
+        self.assertIn("monitor", r)
+        self.assertNotIn("/extra", self.eng.help_text())
+
+
+class WeeklyTests(Base):
+    def test_weekly_sent_once_on_saturday(self):
+        # giovedì 19 e venerdì 20 con attività
+        self.pf.fg = GD
+        self.run_for(30 * 60)
+        self.now = dt.datetime(2026, 11, 20, 15, 0)
+        self.run_for(70 * 60)
+        self.assertEqual(len([p for p in self.ob.parents if p[0].startswith("DeckWatch 19/11")]), 1)
+        weekly_before = [p for p in self.ob.parents if "settimana" in p[0]]
+        # sabato mattina: report di venerdì + settimanale
+        self.now = dt.datetime(2026, 11, 21, 9, 0)
+        self.eng.tick(self.now, 5)
+        weekly = [p for p in self.ob.parents if "settimana" in p[0]]
+        self.assertEqual(len(weekly) - len(weekly_before), 1)
+        body = weekly[-1][1]
+        self.assertIn("settimana 14/11 – 20/11", body)
+        self.assertIn("Geometry Dash: 1h 35m — oltre il limite 1 giorno", body)
+        self.assertIn("❌ ven 20/11", body)
+        self.assertTrue(any("settimana" in k[0] for k in self.ob.kid))
+        # domenica: non lo rimanda
+        self.now = dt.datetime(2026, 11, 22, 9, 0)
+        self.eng.tick(self.now, 5)
+        self.assertEqual(len([p for p in self.ob.parents if "settimana" in p[0]]), len(weekly))
+
+    def test_weekly_after_deck_off_all_weekend(self):
+        self.pf.fg = FF
+        self.run_for(600)
+        self.eng.save()
+        eng2 = d.Engine(self.pf, self.store, self.ob, self.cfg, self.eng.policy, self.eng.overrides)
+        eng2.start(dt.datetime(2026, 11, 23, 8, 0))  # lunedì
+        self.assertEqual(len([p for p in self.ob.parents if "settimana" in p[0]]), 1)
+
+    def test_last_friday(self):
+        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 21)), dt.date(2026, 11, 20))
+        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 20)), dt.date(2026, 11, 13))
+        self.assertEqual(d.last_friday_before(dt.date(2026, 11, 23)), dt.date(2026, 11, 20))
 
 
 class PolicyTests(unittest.TestCase):

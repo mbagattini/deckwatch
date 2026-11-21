@@ -51,7 +51,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 APP = "deckwatch"
 TICK = 5.0
@@ -206,7 +206,6 @@ class Paths:
 
 @dataclass
 class Config:
-    report_time: dt.time = dt.time(21, 30)
     update_url: str = ""
     auto_update: bool = True
     tg_token: str = ""
@@ -235,11 +234,6 @@ class Config:
             log.warning("Config %s non trovata: uso i valori predefiniti", path)
             return c
         d = load_toml_text(path.read_text(encoding="utf-8"))
-        rt = str(d.get("report_time", "21:30"))
-        m = re.fullmatch(r"(\d{1,2}):(\d{2})", rt)
-        if not m:
-            raise ValueError(f"report_time non valido: {rt!r} (formato HH:MM)")
-        c.report_time = dt.time(int(m.group(1)), int(m.group(2)))
         c.update_url = str(d.get("update_url", "")).strip()
         c.auto_update = bool(d.get("auto_update", True))
         tg = d.get("telegram", {}) or {}
@@ -355,7 +349,7 @@ def _parse_lock_until(v):
 
 
 class Policy:
-    TOP_KEYS = {"lock", "lock_until", "lock_message", "lock_grace_seconds", "idle_minutes",
+    TOP_KEYS = {"mode", "lock", "lock_until", "lock_message", "lock_grace_seconds", "idle_minutes",
                 "alerts", "exclude", "always_allowed", "grace", "total", "apps", "exceptions"}
 
     def __init__(self, data: dict):
@@ -371,6 +365,9 @@ class Policy:
                                          "Mamma e papà hanno messo in pausa la Deck."))
         self.lock_grace_seconds = _num(data.get("lock_grace_seconds", 60), "lock_grace_seconds")
         self.alerts = bool(data.get("alerts", True))
+        self.mode = str(data.get("mode", "monitor"))
+        if self.mode not in ("monitor", "enforce"):
+            raise PolicyError('mode: valori ammessi "monitor" o "enforce"')
         self.exclude = _patterns(data.get("exclude", DEFAULT_EXCLUDE), "exclude")
         self.always_allowed = _patterns(data.get("always_allowed", DEFAULT_ALLOWED), "always_allowed")
 
@@ -453,6 +450,10 @@ class Policy:
     def is_allowed(self, key: str, name: str) -> bool:
         return _match(self.always_allowed, key, name) or self.is_excluded(key, name)
 
+    @property
+    def enforce(self) -> bool:
+        return self.mode == "enforce"
+
     def locked(self, now: dt.datetime) -> bool:
         return self.lock or (self.lock_until is not None and now < self.lock_until)
 
@@ -499,7 +500,7 @@ def load_policy_file(path: Path) -> Policy:
 def new_day(date: dt.date) -> dict:
     return {"version": 1, "date": date.isoformat(), "total": 0.0, "apps": {},
             "events": [], "flags": {}, "exceeded": {}, "enforced": [],
-            "reported": False, "snapshot": None, "prev_late": None}
+            "reported": False}
 
 
 class DayStore:
@@ -674,39 +675,100 @@ def send_email(cfg: Config, to: str, subject: str, body: str) -> None:
 # --------------------------------------------------------------------------- #
 # Report
 # --------------------------------------------------------------------------- #
+GIORNI_BREVI = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]
+
+
 def app_breakdown(state: dict, policy: Policy):
-    """Ritorna (righe per regole definite, righe per altre app)."""
+    """Ritorna ({app_id: secondi} per le regole definite, [(secondi, nome)] per le altre app)."""
     groups: dict[str, float] = {}
-    others: list = []
+    others: dict[str, float] = {}
     for key, rec in state["apps"].items():
         aid = policy.app_for(key, rec.get("name", ""))
         if aid:
             groups[aid] = groups.get(aid, 0.0) + rec["seconds"]
         else:
-            others.append((rec["seconds"], rec.get("name") or key))
-    others.sort(reverse=True)
-    return groups, others
+            name = rec.get("name") or key
+            others[name] = others.get(name, 0.0) + rec["seconds"]
+    return groups, sorted(((v, k) for k, v in others.items()), reverse=True)
+
+
+def _has_limit(lim: Limit) -> bool:
+    return lim.soft is not None or lim.hard is not None
+
+
+def _over(used: float, lim: Limit) -> bool:
+    return lim.hard is not None and used >= lim.hard and used > 0
+
+
+def _icon(used: float, lim: Limit) -> str:
+    if _over(used, lim):
+        return "❌"
+    if lim.soft is not None and used >= lim.soft and used > 0:
+        return "🟡"
+    return "✅"
+
+
+def _vs(used: float, lim: Limit) -> str:
+    """'1h 04m / 1h 00m (+4 min)' — tempo effettivo contro tempo concordato."""
+    if lim.hard is not None:
+        s = f"{fmt_min(used)} / {fmt_min(lim.hard)}"
+        if _over(used, lim) and used - lim.hard >= 0.5:
+            s += f" (+{fmt_min(used - lim.hard)})"
+        return s
+    if lim.soft is not None:
+        return f"{fmt_min(used)} (avviso a {fmt_min(lim.soft)})"
+    return f"{fmt_min(used)} (nessun limite)"
+
+
+def _detail_rows(groups: dict, others: list, policy: Policy) -> list:
+    items = [(secs, policy.apps[aid].name) for aid, secs in groups.items() if aid in policy.apps]
+    items += others
+    items.sort(reverse=True)
+    rows, small = [], 0.0
+    for secs, name in items:
+        if secs < 60:
+            small += secs
+        else:
+            rows.append(f"• {name}: {fmt_min(secs / 60)}")
+    if small >= 30:
+        rows.append(f"• altre app brevi: {fmt_min(small / 60)}")
+    return rows or ["(nessuna attività registrata)"]
 
 
 def build_report(state: dict, policy: Policy, audience: str, extras: dict | None = None,
                  as_of: str | None = None) -> tuple[str, str]:
+    """Report giornaliero: riepilogo compatto in alto (effettivo / concordato), poi i dettagli."""
     date = dt.date.fromisoformat(state["date"])
     total_lim, app_lims = policy.day_limits(date, extras)
     used = state["total"] / 60
-    day = f"{GIORNI[date.weekday()]} {date:%d/%m}"
-    over = total_lim.hard is not None and used >= total_lim.hard
     groups, others = app_breakdown(state, policy)
+    day = f"{GIORNI[date.weekday()]} {date:%d/%m}"
+    when = f" (fino alle {as_of})" if as_of else ""
 
-    lines = []
     if audience == "kid":
-        lines += [f"Ciao! Ecco come hai usato la Deck {day}.", ""]
+        lines = [f"Ciao! Ecco il tuo tempo sulla Deck di {day}{when}.", ""]
     else:
-        lines += [f"📊 DeckWatch — {day}" + (f" (dati fino alle {as_of})" if as_of else ""), ""]
-    lim_txt = f" su {fmt_min(total_lim.hard)}" if total_lim.hard is not None else ""
-    lines.append(f"Tempo totale: {fmt_min(used)}{lim_txt}" + ("  ⚠️ limite superato" if over else ""))
+        lines = [f"📊 DeckWatch — {day}{when}", ""]
+
+    lines.append("RIEPILOGO")
+    overs = []
+    lines.append(f"{_icon(used, total_lim)} Totale: {_vs(used, total_lim)}")
+    if _over(used, total_lim):
+        overs.append("tempo totale")
+    for aid, r in policy.apps.items():
+        lim = app_lims.get(aid, Limit())
+        if not _has_limit(lim):
+            continue
+        u = groups.get(aid, 0.0) / 60
+        lines.append(f"{_icon(u, lim)} {r.name}: {_vs(u, lim)}")
+        if _over(u, lim):
+            overs.append(r.name)
+
+    lines += ["", "DETTAGLIO"]
+    lines += _detail_rows(groups, others, policy)
     ex = policy.exceptions.get(state["date"])
     if ex and ex.get("note"):
-        lines.append(f"Eccezione del giorno: {ex['note']}")
+        lines.append(f"Giorno speciale: {ex['note']}")
     if extras and (extras.get("total") or extras.get("apps")):
         parts = []
         if extras.get("total"):
@@ -714,47 +776,96 @@ def build_report(state: dict, policy: Policy, audience: str, extras: dict | None
         for aid, m in (extras.get("apps") or {}).items():
             parts.append(f"{m:+g} min a {policy.apps[aid].name if aid in policy.apps else aid}")
         lines.append("Minuti extra concessi: " + ", ".join(parts))
-    lines.append("")
 
-    rows = []
-    for aid, r in policy.apps.items():
-        secs = groups.get(aid, 0.0)
-        lim = app_lims.get(aid, Limit())
-        if secs < 30 and lim.hard is None:
-            continue
-        txt = f"• {r.name}: {fmt_min(secs / 60)}"
-        if lim.hard is not None:
-            txt += f" su {fmt_min(lim.hard)}"
-            if secs / 60 >= lim.hard:
-                txt += " ⚠️"
-        rows.append(txt)
-    small = 0.0
-    for secs, name in others:
-        if secs < 60:
-            small += secs
-            continue
-        rows.append(f"• {name}: {fmt_min(secs / 60)}")
-    if small >= 30:
-        rows.append(f"• altre app brevi: {fmt_min(small / 60)}")
-    lines += rows or ["(nessuna attività registrata)"]
-
-    late = state.get("prev_late")
-    if late and audience != "kid":
-        lines += ["", f"Il giorno prima, dopo l'invio del report: +{fmt_min(late['seconds'] / 60)}"]
-
-    if audience != "kid":
-        evs = [e for e in state.get("events", []) if e[2] in ("block", "lock", "kill", "extra", "cmd")]
-        if evs:
-            lines += ["", "Eventi:"]
-            lines += [f"  {e[0]} {e[1]}" for e in evs[-30:]]
-        subject = f"DeckWatch {date:%d/%m}: {fmt_min(used)}" + (" ⚠️" if over else "")
-    else:
+    if audience == "kid":
         lines.append("")
-        if over:
-            lines.append("Oggi hai superato il tempo concordato: domani cerchiamo di stare nei limiti.")
-        elif total_lim.hard is not None:
-            lines.append("Sei rimasto nei limiti concordati, ottimo! 👍")
+        if overs:
+            lines.append("Oggi sei andato oltre il tempo concordato per: " + ", ".join(overs) +
+                         ". Domani cerchiamo di rispettarlo.")
+        elif _has_limit(total_lim) or any(_has_limit(l) for l in app_lims.values()):
+            lines.append("Tutto nei tempi concordati, ottimo! 👍")
         subject = f"Il tuo tempo sulla Deck di {GIORNI[date.weekday()]}: {fmt_min(used)}"
+    else:
+        evs = [e for e in state.get("events", [])
+               if len(e) > 2 and e[2] in ("block", "kill", "sim", "lock", "extra", "cmd")]
+        if evs:
+            lines += ["", "EVENTI"]
+            lines += [f"{e[0]} {e[1]}" for e in evs[-30:]]
+        subject = f"DeckWatch {date:%d/%m}: {fmt_min(used)}" + (" ❌" if overs else "")
+    return subject, "\n".join(lines)
+
+
+def last_friday_before(today: dt.date) -> dt.date:
+    """L'ultimo venerdì strettamente precedente a oggi (la settimana va da sabato a venerdì)."""
+    delta = (today.weekday() - 4) % 7 or 7
+    return today - dt.timedelta(days=delta)
+
+
+def build_weekly(states: dict, policy: Policy, extras_map: dict, audience: str) -> tuple[str, str]:
+    """Riepilogo settimanale. states: {data_iso: stato o None} per i 7 giorni sab→ven."""
+    dates = sorted(states)
+    d0, d6 = dt.date.fromisoformat(dates[0]), dt.date.fromisoformat(dates[-1])
+    period = f"{d0:%d/%m} – {d6:%d/%m}"
+    week_total = 0.0
+    total_overs = 0
+    app_week: dict[str, float] = {}
+    app_over_days: dict[str, int] = {}
+    other_week: dict[str, float] = {}
+    day_lines = []
+    any_total_limit = False
+    for iso in dates:
+        st = states[iso] or new_day(dt.date.fromisoformat(iso))
+        date = dt.date.fromisoformat(iso)
+        total_lim, app_lims = policy.day_limits(date, extras_map.get(iso))
+        used = st["total"] / 60
+        week_total += used
+        any_total_limit |= total_lim.hard is not None
+        groups, others = app_breakdown(st, policy)
+        if _over(used, total_lim):
+            total_overs += 1
+        day_overs = []
+        for aid, secs in groups.items():
+            app_week[aid] = app_week.get(aid, 0.0) + secs
+        for aid, lim in app_lims.items():
+            if _over(groups.get(aid, 0.0) / 60, lim):
+                app_over_days[aid] = app_over_days.get(aid, 0) + 1
+                day_overs.append(policy.apps[aid].name)
+        for secs, name in others:
+            other_week[name] = other_week.get(name, 0.0) + secs
+        icon = "❌" if day_overs else _icon(used, total_lim)
+        line = f"{icon} {GIORNI_BREVI[date.weekday()]} {date:%d/%m}: {_vs(used, total_lim)}"
+        if day_overs:
+            line += " — oltre: " + ", ".join(day_overs)
+        day_lines.append(line)
+
+    if audience == "kid":
+        lines = [f"Ciao! Ecco la tua settimana sulla Deck ({period}).", ""]
+    else:
+        lines = [f"📅 DeckWatch — settimana {period}", ""]
+    lines.append("RIEPILOGO")
+    lines.append(f"Totale settimana: {fmt_min(week_total)} (media {fmt_min(week_total / 7)} al giorno)")
+    if any_total_limit:
+        lines.append(f"Giorni oltre il tempo totale concordato: {total_overs} su 7")
+    limited = [aid for aid in policy.apps
+               if any(_has_limit(l) for l in [policy.day_limits(dt.date.fromisoformat(i))[1][aid]
+                                              for i in dates])]
+    for aid in limited:
+        n = app_over_days.get(aid, 0)
+        lines.append(f"• {policy.apps[aid].name}: {fmt_min(app_week.get(aid, 0) / 60)} — "
+                     f"oltre il limite {n} {'giorno' if n == 1 else 'giorni'}")
+    lines += ["", "GIORNO PER GIORNO"] + day_lines
+    lines += ["", "DETTAGLIO APP (settimana)"]
+    lines += _detail_rows(app_week, sorted(((v, k) for k, v in other_week.items()), reverse=True),
+                          policy)
+    n_overs = total_overs + sum(app_over_days.values())
+    if audience == "kid":
+        lines.append("")
+        lines.append("Settimana nei tempi concordati, complimenti! 🎉" if n_overs == 0 else
+                     f"Questa settimana i tempi concordati sono stati superati {n_overs} "
+                     f"{'volta' if n_overs == 1 else 'volte'}: la prossima facciamo meglio!")
+        subject = f"La tua settimana sulla Deck: {fmt_min(week_total)}"
+    else:
+        subject = f"DeckWatch settimana {period}: {fmt_min(week_total)}" + (" ❌" if n_overs else "")
     return subject, "\n".join(lines)
 
 
@@ -788,6 +899,7 @@ class Engine:
         self._map_cache: tuple = (None, {})
         self.last_fg: Foreground | None = None
         self.last_active = False
+        self._now: dt.datetime | None = None
 
     # -- ciclo di vita ----------------------------------------------------- #
     def start(self, now: dt.datetime) -> None:
@@ -799,6 +911,7 @@ class Engine:
             if prev:
                 self._close_day(prev, st)
         self.state = st
+        self._maybe_weekly(now.date())
         self.store.cleanup()
         self.save(now.timestamp())
 
@@ -807,16 +920,28 @@ class Engine:
         self._last_save = ts if ts is not None else time.time()
 
     def _close_day(self, old: dict, new: dict) -> None:
+        """Giornata finita (mezzanotte o prima accensione del giorno dopo): invio il report."""
         if not old.get("reported"):
             self._send_reports(old, as_of=None)
             old["reported"] = True
-            old["snapshot"] = self._snapshot(old)
-        else:
-            snap = old.get("snapshot") or {"total": old["total"]}
-            late = old["total"] - snap.get("total", 0)
-            if late >= 60:
-                new["prev_late"] = {"date": old["date"], "seconds": late}
         self.store.save(old)
+
+    def _maybe_weekly(self, today: dt.date) -> None:
+        """Dopo il venerdì (settimana sab→ven) invio il riepilogo settimanale, una volta sola."""
+        fri = last_friday_before(today)
+        sent = self.overrides.get("last_weekly")
+        if sent and sent >= fri.isoformat():
+            return
+        days = [(fri - dt.timedelta(days=6 - i)).isoformat() for i in range(7)]
+        states = {iso: (self.state if iso == self.state["date"] else self.store.load(iso))
+                  for iso in days}
+        if any(states.values()):
+            extras = {iso: self.extras_for(iso) for iso in days}
+            subj, body = build_weekly(states, self.policy, extras, "parents")
+            self.outbox.to_parents(body, subj)
+            subj, body = build_weekly(states, self.policy, extras, "kid")
+            self.outbox.to_kid(body, subj)
+        self.overrides.set("last_weekly", fri.isoformat())
 
     def _rollover(self, now: dt.datetime) -> None:
         if now.date().isoformat() == self.state["date"]:
@@ -825,11 +950,8 @@ class Engine:
         self._close_day(self.state, new)
         self.state = new
         self._pending.clear()
+        self._maybe_weekly(now.date())
         self.save(now.timestamp())
-
-    @staticmethod
-    def _snapshot(st: dict) -> dict:
-        return {"total": st["total"]}
 
     # -- override dai genitori (Telegram) ---------------------------------- #
     def extras_for(self, date_iso: str) -> dict:
@@ -868,7 +990,7 @@ class Engine:
     # -- eventi e notifiche ------------------------------------------------ #
     def _event(self, kind: str, text: str) -> None:
         evs = self.state.setdefault("events", [])
-        evs.append([dt.datetime.now().strftime("%H:%M"), text, kind])
+        evs.append([(self._now or dt.datetime.now()).strftime("%H:%M"), text, kind])
         del evs[:-300]
 
     def _say(self, title: str, body: str, urgent: bool = False, popup: bool = False,
@@ -880,7 +1002,7 @@ class Engine:
                 self.platform.popup(f"{title}\n\n{body}")
         except Exception:
             log.exception("Notifica non riuscita")
-        self._event(kind, f"{title} — {body}")
+        self._event(kind, title if kind in ("block", "lock") else f"{title} — {body}")
 
     def _alert(self, key: str, text: str) -> None:
         if not self.policy.alerts:
@@ -893,6 +1015,7 @@ class Engine:
 
     # -- tick principale --------------------------------------------------- #
     def tick(self, now: dt.datetime, delta: float) -> None:
+        self._now = now
         self._rollover(now)
         st, pol, ts = self.state, self.policy, now.timestamp()
 
@@ -924,7 +1047,6 @@ class Engine:
             except Exception:
                 log.exception("popup")
         self._apply_targets(targets, ts)
-        self._maybe_report(now)
         if ts - self._last_save >= 30:
             self.save(ts)
 
@@ -957,13 +1079,17 @@ class Engine:
         k = f"{lid}|{lim.hard:g}"
         if k not in ex:
             ex[k] = ts
-            self._say(f"{label}: tempo finito",
-                      f"Hai raggiunto {fmt_min(lim.hard)}. Hai {fmt_min(pol.grace_minutes)} per "
-                      "salvare e chiudere, poi verrà chiuso automaticamente.",
-                      urgent=True, popup=True, kind="block")
+            if pol.enforce:
+                body = (f"Hai raggiunto {fmt_min(lim.hard)}. Hai {fmt_min(pol.grace_minutes)} per "
+                        "salvare e chiudere, poi verrà chiuso automaticamente.")
+            else:
+                body = (f"Hai raggiunto il tempo concordato ({fmt_min(lim.hard)}). Per ora è solo "
+                        f"un avviso: con le regole attive verrebbe chiuso tra "
+                        f"{fmt_min(pol.grace_minutes)}.")
+            self._say(f"{label}: tempo finito", body, urgent=True, popup=True, kind="block")
         left = pol.grace_minutes * 60 - (ts - ex[k])
         if left > 0:
-            if left <= 60:
+            if left <= 60 and pol.enforce:
                 k2 = f"{lid}|grace1|{lim.hard:g}"
                 if k2 not in fl:
                     fl[k2] = ts
@@ -1009,7 +1135,8 @@ class Engine:
 
         if fg:
             consider(fg.key, fg.name, fg, fg.steam_appid)
-        if total_block or any(s == "blocked" for s in app_status.values()):
+        if lock_on or (pol.enforce and (total_status == "blocked" or
+                                        any(s == "blocked" for s in app_status.values()))):
             for appid in self.platform.running_steam_games():
                 key = f"steam:{appid}"
                 consider(key, self.platform.steam_name(appid) or key, None, appid)
@@ -1023,6 +1150,13 @@ class Engine:
         enforced = self.state["enforced"]
         for key, t in targets.items():
             lid = t["lid"]
+            if not pol.enforce and lid != "lock":
+                k = f"sim|{lid}"
+                if k not in self.state["flags"]:
+                    self.state["flags"][k] = ts
+                    self._event("sim", f"(simulazione) {t['name']} sarebbe stato chiuso: "
+                                       f"{t['reason']}")
+                continue
             immediate = lid not in enforced and (
                 lid == "lock" or any(k.startswith(lid + "|") for k in self.state["exceeded"]))
             p = self._pending.get(key)
@@ -1065,29 +1199,24 @@ class Engine:
         subj, body = build_report(st, self.policy, "kid", extras)
         self.outbox.to_kid(body, subj)
 
-    def _maybe_report(self, now: dt.datetime) -> None:
-        st = self.state
-        if st.get("reported") or now.time() < self.cfg.report_time:
-            return
-        self._send_reports(st, as_of=now.strftime("%H:%M"))
-        st["reported"] = True
-        st["snapshot"] = self._snapshot(st)
-        self.save(now.timestamp())
-
     # -- comandi Telegram -------------------------------------------------- #
-    HELP = (
-        "Comandi DeckWatch:\n"
-        "/stato — cosa sta usando ora e tempo di oggi\n"
-        "/oggi — report di oggi fin qui\n"
-        "/stop — blocca la Deck (kill-switch) finché non mandi /sblocca\n"
-        "/stop 60 — blocca per 60 minuti\n"
-        "/sblocca — rimuove il blocco\n"
-        "/extra 30 — 30 minuti in più sul totale di oggi\n"
-        "/extra geometry_dash 15 — 15 minuti in più a quell'app (anche negativi)\n"
-        "/limiti — limiti di oggi\n"
-        "/spegni — spegne la Deck adesso\n"
-        "/aiuto — questo messaggio"
-    )
+    def help_text(self) -> str:
+        lines = ["Comandi DeckWatch:",
+                 "/stato — cosa sta usando ora e tempo di oggi",
+                 "/oggi — report di oggi fin qui",
+                 "/limiti — limiti di oggi",
+                 "/stop — blocca la Deck (kill-switch) finché non mandi /sblocca",
+                 "/stop 60 — blocca per 60 minuti",
+                 "/sblocca — rimuove il blocco"]
+        if self.policy.enforce:
+            lines += ["/extra 30 — 30 minuti in più sul totale di oggi",
+                      "/extra geometry_dash 15 — 15 minuti in più a quell'app (anche negativi)",
+                      "/spegni — spegne la Deck adesso"]
+        lines.append("/aiuto — questo messaggio")
+        if not self.policy.enforce:
+            lines += ["", "Modalità monitor: nessuna chiusura automatica, solo avvisi; nel report "
+                          "trovi cosa sarebbe stato chiuso. Il blocco /stop funziona sempre."]
+        return "\n".join(lines)
 
     def handle_command(self, chat_id: int, sender: str, text: str, msg_ts: float,
                        now: dt.datetime) -> str | None:
@@ -1101,7 +1230,10 @@ class Engine:
         pol = self.policy
 
         if cmd in ("/start", "/aiuto", "/help"):
-            return self.HELP
+            return self.help_text()
+        if cmd in ("/extra", "/spegni") and not pol.enforce:
+            return (f"{cmd} non è attivo in modalità monitor. Per attivarlo: "
+                    'mode = "enforce" in policy.toml.')
         if cmd == "/stato":
             return self.status_text(now)
         if cmd == "/oggi":
