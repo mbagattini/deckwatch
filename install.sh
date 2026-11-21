@@ -170,4 +170,9 @@ Fatto. Comandi utili (Konsole):
   deckwatch test                messaggio di prova su Telegram/email
   journalctl --user -u $APP -f  log in tempo reale
 EOF
-[[ ":$PATH:" == *":$BIN_DIR:"* ]] || warn "$BIN_DIR non è nel PATH: usa $BIN_DIR/deckwatch"
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+  if ! grep -qs 'DeckWatch PATH' "$HOME/.bashrc"; then
+    printf '\n# DeckWatch PATH\nexport PATH="$HOME/.local/bin:$PATH"\n' >>"$HOME/.bashrc"
+  fi
+  warn "Chiudi e riapri Konsole per usare il comando 'deckwatch' (oppure usa $BIN_DIR/deckwatch)."
+fi
