@@ -9,7 +9,7 @@
 # senza sudo.
 set -euo pipefail
 
-REPO_RAW="${DECKWATCH_REPO_RAW:-https://raw.githubusercontent.com/mbagattini/dd/main}"
+REPO_RAW="${DECKWATCH_REPO_RAW:-https://raw.githubusercontent.com/mbagattini/deckwatch/main}"
 APP=deckwatch
 INSTALL_DIR="$HOME/.local/share/$APP"
 BIN_DIR="$HOME/.local/bin"

@@ -33,7 +33,7 @@ riaccensione. Un `/spegni` arrivato con più di 10 minuti di ritardo viene ignor
 1. Passa alla **Modalità Desktop** e apri **Konsole**.
 2. Esegui:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/mbagattini/dd/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/mbagattini/deckwatch/main/install.sh | bash
    ```
 3. Rispondi alle domande: token del bot, Gmail, email del figlio, ora del report.
 4. Quando richiesto, **entrambi i genitori** aprono il bot su Telegram e premono

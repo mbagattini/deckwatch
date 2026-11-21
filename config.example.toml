@@ -10,7 +10,7 @@
 report_time = "21:30"
 
 # Aggiornamenti automatici (controllo una volta al giorno).
-update_url = "https://raw.githubusercontent.com/mbagattini/dd/main"
+update_url = "https://raw.githubusercontent.com/mbagattini/deckwatch/main"
 auto_update = true
 
 [telegram]
