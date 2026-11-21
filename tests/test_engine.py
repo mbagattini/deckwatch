@@ -141,13 +141,15 @@ class MonitorTests(Base):
         self.assertIn("⏰ Tempo concordato terminato", self.titles())
         self.assertIn("Il tempo concordato per Geometry Dash è terminato. Chiudi appena possibile.",
                       [n[1] for n in self.pf.notes])
-        self.assertGreaterEqual(self.pf.alarms, 1)
+        self.assertEqual(self.pf.alarms, 0)  # niente suono al tempo concordato
+        self.assertTrue([n for n in self.pf.notes if n[0] == "⏰ Tempo concordato terminato"][0][2])
         self.assertEqual(self.titles().count("⏰ Tempo concordato terminato"), 1)
         self.run_for(6 * 60)
         hard = [n for n in self.pf.notes if n[0] == "⛔ Tempo massimo raggiunto"]
         self.assertEqual(len(hard), 1)
         self.assertIn("si sarebbe chiusa automaticamente", hard[0][1])
         self.assertTrue(self.pf.popups)
+        self.assertEqual(self.pf.alarms, 1)  # suono solo al massimo
         self.assertEqual(self.pf.kills, [])
         sims = [e for e in self.eng.state["events"] if e[2] == "sim"]
         self.assertEqual(len(sims), 1)

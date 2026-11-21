@@ -38,8 +38,8 @@ Ecco come funziona, senza segreti.
 
 | Messaggio | Cosa vuol dire |
 |---|---|
-| **⏰ Tempo concordato terminato** | Hai finito il tempo che avete deciso, per quel gioco o per oggi. Arriva con un suono. **Chiudi appena possibile**: salva, finisci il livello e smetti. |
-| **⛔ Tempo massimo raggiunto** | Sono passati altri **5 minuti** dopo il tempo concordato. Per ora è **una prova**: il gioco continua a funzionare, ma il messaggio ti dice che "in questo momento si sarebbe chiuso". Se un giorno le regole diventano attive, a questo punto il gioco si chiude davvero. |
+| **⏰ Tempo concordato terminato** | Hai finito il tempo che avete deciso, per quel gioco o per oggi. È una notifica in alto, senza suono. **Chiudi appena possibile**: salva, finisci il livello e smetti. |
+| **⛔ Tempo massimo raggiunto** | Sono passati altri **5 minuti** dopo il tempo concordato. Compare una finestra con un suono. Per ora è **una prova**: il gioco continua a funzionare, ma il messaggio ti dice che "in questo momento si sarebbe chiuso". Se un giorno le regole diventano attive, a questo punto il gioco si chiude davvero. |
 | **⏸ Deck in pausa** | I tuoi genitori hanno messo in pausa la Deck. Hai **60 secondi** per salvare, poi i giochi si chiudono. Firefox per la scuola resta disponibile. |
 | **🎁 Tempo extra** | I tuoi genitori ti hanno dato qualche minuto in più, solo per oggi. |
 | **📅 Giorno festivo / feriale** | Oggi valgono i tempi di un altro tipo di giorno, per esempio in vacanza. |

@@ -46,8 +46,8 @@ Ogni limite ha due valori:
 
 | | Cosa succede |
 |---|---|
-| **Tempo concordato** | Sulla Deck compare "Il tempo concordato per … è terminato. Chiudi appena possibile.", con un suono di avviso. |
-| **Tempo massimo** (di solito il concordato + **5 minuti**) | Oggi, in prova: compare un avviso più evidente, ma il gioco non viene chiuso. Con le regole attive: il gioco si chiude. |
+| **Tempo concordato** | Sulla Deck compare "Il tempo concordato per … è terminato. Chiudi appena possibile.", senza suono per non distrarlo durante il gioco. |
+| **Tempo massimo** (di solito il concordato + **5 minuti**) | Compare una finestra con un suono di avviso, che interrompe il gioco. Oggi, in prova, il gioco non viene chiuso; con le regole attive si chiude. |
 
 ## Prova e regole attive
 

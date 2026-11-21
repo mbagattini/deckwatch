@@ -53,7 +53,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 APP = "deckwatch"
 TICK = 10.0
@@ -1262,7 +1262,7 @@ class Engine:
 
     def _say(self, title: str, body: str, level: str = "info", kind: str = "info",
              event: bool = True) -> None:
-        """level: info (notifica normale), soft (notifica critica + suono),
+        """level: info (notifica normale), soft (notifica critica, senza suono),
         strong (notifica critica + popup + suono). Con un gioco a tutto schermo solo le
         notifiche critiche sono visibili; il popup prende il controllo dello schermo."""
         log.info("Avviso: %s — %s", title, body)
@@ -1270,7 +1270,7 @@ class Engine:
             self.platform.notify(title, body, level in ("soft", "strong"))
             if level == "strong":
                 self.platform.popup(f"{title}\n\n{body}")
-            if level in ("soft", "strong"):
+            if level == "strong":
                 self.platform.alarm()
         except Exception:
             log.exception("Notifica non riuscita")
@@ -3359,9 +3359,8 @@ def cmd_test_notifications(paths: Paths, args) -> int:
         ("2) notifica critica", lambda: p.notify("DeckWatch — prova 2", "Notifica critica", True)),
         ("3) popup", lambda: p.popup("DeckWatch — prova 3\n\nPopup: premi OK per chiudere")),
         ("4) suono di allarme", p.alarm),
-        ("5) notifica critica + suono (come al tempo concordato)",
-         lambda: (p.notify("⏰ Tempo concordato terminato", "Prova: chiudi appena possibile.", True),
-                  p.alarm())),
+        ("5) notifica critica senza suono (come al tempo concordato)",
+         lambda: p.notify("⏰ Tempo concordato terminato", "Prova: chiudi appena possibile.", True)),
     ]
     for label, fn in steps:
         print(label)
